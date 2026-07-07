@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { useSkillsStore } from '@/stores/useSkillsStore';
+import { SkillPreviewDialog } from './SkillPreviewDialog';
 
 interface SkillMultiselectCardProps {
   open: boolean;
@@ -20,6 +21,7 @@ interface SkillItem {
   scope: string;
   source?: string;
   description?: string;
+  content?: string;
 }
 
 const MAX_HEIGHT = 420;
@@ -29,16 +31,19 @@ const SkillRow = React.memo(function SkillRow({
   selected,
   focused,
   onToggle,
+  onRead,
   onMouseEnter,
 }: {
   skill: SkillItem;
   selected: boolean;
   focused: boolean;
   onToggle: () => void;
+  onRead: () => void;
   onMouseEnter: () => void;
 }) {
   const isProject = skill.scope === 'project';
   const source = skill.source || 'opencode';
+  const hasContent = typeof skill.content === 'string' && skill.content.length > 0;
 
   return (
     <button
@@ -57,7 +62,7 @@ const SkillRow = React.memo(function SkillRow({
         <Checkbox checked={selected} onChange={onToggle} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className={cn(
             'text-sm break-all',
             selected ? 'text-foreground font-medium' : 'text-foreground/85',
@@ -75,6 +80,29 @@ const SkillRow = React.memo(function SkillRow({
           <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-0.5 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">
             {source}
           </span>
+          {/* Read-skill link — secondary to the checkbox, stops propagation so
+             * clicking it doesn't toggle selection. Only shown when content
+             * is available. */}
+          {hasContent ? (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRead();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRead();
+                }
+              }}
+              className="ml-auto text-[11px] text-muted-foreground hover:text-primary underline-offset-2 hover:underline active:scale-[0.98] transition-colors cursor-pointer flex-shrink-0 select-none"
+            >
+              read skill
+            </span>
+          ) : null}
         </div>
         {skill.description ? (
           <div className="text-xs text-muted-foreground mt-0.5 break-words line-clamp-2">
@@ -112,6 +140,7 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [focusedIndex, setFocusedIndex] = React.useState(0);
   const [submitting, setSubmitting] = React.useState(false);
+  const [previewSkill, setPreviewSkill] = React.useState<SkillItem | null>(null);
 
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -297,6 +326,7 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
                 selected={selected.has(skill.name)}
                 focused={index === focusedIndex}
                 onToggle={() => toggleSkill(skill.name)}
+                onRead={() => setPreviewSkill(skill)}
                 onMouseEnter={() => setFocusedIndex(index)}
               />
             ))}
@@ -363,6 +393,17 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
           </div>
         ) : null}
       </div>
+
+      {/* Skill content preview modal — non-invasive: doesn't block the list.
+          User can close it + continue selecting. */}
+      <SkillPreviewDialog
+        open={previewSkill !== null}
+        onOpenChange={(o) => { if (!o) setPreviewSkill(null); }}
+        skillName={previewSkill?.name ?? ''}
+        skillContent={previewSkill?.content}
+        skillScope={previewSkill?.scope}
+        skillSource={previewSkill?.source}
+      />
     </div>
   );
 };
