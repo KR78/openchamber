@@ -21,6 +21,7 @@ import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { startReviewFlow } from '@/lib/reviewFlow';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
+import { SkillMultiselectCard } from './SkillMultiselectCard';
 import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion } from './FileAttachment';
 import ToolOutputDialog from './message/ToolOutputDialog';
 import type { ToolPopupContent } from './message/types';
@@ -1097,6 +1098,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
+    const [skillMultiselectOpen, setSkillMultiselectOpen] = React.useState(false);
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
 
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
@@ -2146,6 +2148,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 } catch (error) {
                     toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.planFeatureFailed'));
                 }
+                return;
+            }
+            else if (commandName === 'load-skills' && (currentSessionId || newSessionDraftOpen)) {
+                setSkillMultiselectOpen(true);
                 return;
             }
             else if (commandName === 'catch-up' && (currentSessionId || newSessionDraftOpen)) {
@@ -5454,6 +5460,34 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             projectDirectory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
             submitting={reviewFlowSubmitting}
             onConfirm={handleStartReviewFlow}
+        />
+        <SkillMultiselectCard
+            open={skillMultiselectOpen}
+            onOpenChange={setSkillMultiselectOpen}
+            onConfirm={async (selectedSkillNames) => {
+                if (!currentSessionId) return;
+                try {
+                    await sessionActions.waitForConnectionOrThrow();
+                    const skillList = selectedSkillNames.join(', ');
+                    const visibleText = `Load these skills via use_skill: ${skillList}`;
+                    const instructionsText = `Load the following skills via the use_skill tool, one call per skill: ${skillList}. After loading all of them, confirm with the user whether any additional skills are needed for the current task before proceeding.`;
+                    await sendMessage(
+                        visibleText,
+                        currentProviderId,
+                        currentModelId,
+                        currentAgentName,
+                        [],
+                        undefined,
+                        [{ text: instructionsText, synthetic: true }],
+                        currentVariant,
+                        'normal',
+                        undefined,
+                    );
+                    scrollToBottom?.();
+                } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Failed to load skills');
+                }
+            }}
         />
         <ToolOutputDialog
             popup={attachmentPreview}
