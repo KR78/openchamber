@@ -5464,6 +5464,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         <SkillMultiselectCard
             open={skillMultiselectOpen}
             onOpenChange={setSkillMultiselectOpen}
+            isMobile={isMobile}
             onConfirm={async (selectedSkillNames) => {
                 if (!currentSessionId) return;
                 try {
