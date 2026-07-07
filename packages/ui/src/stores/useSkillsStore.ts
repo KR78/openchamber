@@ -67,6 +67,8 @@ export interface DiscoveredSkill {
   scope: SkillScope;
   source: SkillSource;
   description?: string;
+  /** Full SKILL.md content (from /api/config/skills). Used for previews. */
+  content?: string;
   /** Domain folder parsed from file path, e.g. "automation-ai", "lark-ecosystem" */
   group?: string;
 }
@@ -92,6 +94,7 @@ interface RawSkillResponse {
   path: string;
   scope?: SkillScope;
   source?: SkillSource;
+  content?: string;
   sources?: {
     md?: {
       description?: string;
@@ -234,6 +237,7 @@ export const useSkillsStore = create<SkillsStore>()(
                   scope: s.scope ?? 'user',
                   source: s.source ?? 'opencode',
                   description: s.sources?.md?.description || '',
+                  content: s.content,
                   group: parseSkillGroup(s.path),
                 }));
 

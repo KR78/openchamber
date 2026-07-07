@@ -4,11 +4,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { useSkillsStore } from '@/stores/useSkillsStore';
+import { SkillPreviewDialog } from './SkillPreviewDialog';
 
 interface SkillMultiselectCardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (selectedSkillNames: string[]) => Promise<void> | void;
+  /** Mobile renders the card edge-to-edge (full viewport width), breaking
+   *  out of the chat-input-column padding. Desktop keeps it pinned to the
+   *  composer width via left-0 w-full. */
+  isMobile?: boolean;
 }
 
 interface SkillItem {
@@ -16,6 +21,7 @@ interface SkillItem {
   scope: string;
   source?: string;
   description?: string;
+  content?: string;
 }
 
 const MAX_HEIGHT = 420;
@@ -25,16 +31,19 @@ const SkillRow = React.memo(function SkillRow({
   selected,
   focused,
   onToggle,
+  onRead,
   onMouseEnter,
 }: {
   skill: SkillItem;
   selected: boolean;
   focused: boolean;
   onToggle: () => void;
+  onRead: () => void;
   onMouseEnter: () => void;
 }) {
   const isProject = skill.scope === 'project';
   const source = skill.source || 'opencode';
+  const hasContent = typeof skill.content === 'string' && skill.content.length > 0;
 
   return (
     <button
@@ -53,7 +62,7 @@ const SkillRow = React.memo(function SkillRow({
         <Checkbox checked={selected} onChange={onToggle} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className={cn(
             'text-sm break-all',
             selected ? 'text-foreground font-medium' : 'text-foreground/85',
@@ -71,6 +80,29 @@ const SkillRow = React.memo(function SkillRow({
           <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-0.5 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">
             {source}
           </span>
+          {/* Read-skill link — secondary to the checkbox, stops propagation so
+             * clicking it doesn't toggle selection. Only shown when content
+             * is available. */}
+          {hasContent ? (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRead();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRead();
+                }
+              }}
+              className="ml-auto text-[11px] text-muted-foreground hover:text-primary underline-offset-2 hover:underline active:scale-[0.98] transition-colors cursor-pointer flex-shrink-0 select-none"
+            >
+              read skill
+            </span>
+          ) : null}
         </div>
         {skill.description ? (
           <div className="text-xs text-muted-foreground mt-0.5 break-words line-clamp-2">
@@ -98,6 +130,7 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
   open,
   onOpenChange,
   onConfirm,
+  isMobile = false,
 }) => {
   const skills = useSkillsStore((s) => s.skills);
   const loadSkills = useSkillsStore((s) => s.loadSkills);
@@ -107,6 +140,7 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [focusedIndex, setFocusedIndex] = React.useState(0);
   const [submitting, setSubmitting] = React.useState(false);
+  const [previewSkill, setPreviewSkill] = React.useState<SkillItem | null>(null);
 
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -128,15 +162,16 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
       ? skills.filter((s) => fuzzyMatch(s.name, normalized) || (s.description ? fuzzyMatch(s.description.slice(0, 80), normalized) : false))
       : skills;
 
+    // Sort by scope (project first) then name. Do NOT reorder by selection
+    // state — that would move items when toggled, throwing the user off.
+    // The selected state is shown via the checkbox + a subtle highlight on the
+    // row itself, which is enough signal without rearranging the list.
     return [...matches].sort((a, b) => {
-      const aSel = selected.has(a.name) ? 0 : 1;
-      const bSel = selected.has(b.name) ? 0 : 1;
-      if (aSel !== bSel) return aSel - bSel;
       if (a.scope === 'project' && b.scope !== 'project') return -1;
       if (a.scope !== 'project' && b.scope === 'project') return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [skills, query, selected]);
+  }, [skills, query]);
 
   React.useEffect(() => {
     setFocusedIndex(0);
@@ -219,8 +254,19 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
   return (
     <div
       ref={containerRef}
-      className="absolute z-[200] left-0 w-full max-w-[calc(100vw-2rem)] bg-background border border-border/60 rounded-xl shadow-lg flex flex-col"
-      style={{ maxHeight: MAX_HEIGHT }}
+      className={cn(
+        'z-[200] bg-background border border-border/60 rounded-xl shadow-lg flex flex-col',
+        // Desktop: anchor to the composer column (left-0 w-full fills the
+        //   chat-input-column width, which is what we want on tablet/desktop).
+        // Mobile: break out of the chat-input-column padding by going full
+        //   viewport width (calc(100vw) with -left offset cancelling the parent
+        //   padding). This makes the card edge-to-edge like a bottom sheet,
+        //   matching MobileOverlayPanel behavior.
+        isMobile
+          ? 'fixed left-0 right-0 bottom-0 w-full max-h-[70dvh] rounded-b-none border-x-0 border-b-0'
+          : 'absolute left-0 w-full max-w-[calc(100vw-2rem)]',
+      )}
+      style={{ maxHeight: isMobile ? undefined : MAX_HEIGHT }}
       role="dialog"
       aria-modal="true"
       aria-label="Load skills"
@@ -280,6 +326,7 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
                 selected={selected.has(skill.name)}
                 focused={index === focusedIndex}
                 onToggle={() => toggleSkill(skill.name)}
+                onRead={() => setPreviewSkill(skill)}
                 onMouseEnter={() => setFocusedIndex(index)}
               />
             ))}
@@ -303,15 +350,22 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
         )}
       </ScrollableOverlay>
 
-      <div className="px-3 py-2 border-t border-border/20 flex items-center gap-1.5">
+      <div className={cn(
+        'border-t border-border/20 flex items-center gap-2.5',
+        // Mobile: bigger touch targets + no keyboard hints (touch has no keyboard)
+        // Desktop: compact row with hints pushed to the right
+        isMobile ? 'px-4 py-3' : 'px-3 py-2',
+      )}>
         <button
           type="button"
           onClick={handleConfirm}
           disabled={selectedCount === 0 || submitting}
           className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded transition-colors',
+            'flex items-center gap-1.5 font-medium rounded transition-colors',
+            // Touch-friendly: min 40px height on mobile, standard on desktop
+            isMobile ? 'flex-1 justify-center py-2.5 text-sm' : 'px-3 py-1.5 text-sm',
             'bg-[rgb(var(--status-success)/0.1)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
+            'disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]',
           )}
         >
           {submitting ? (
@@ -325,14 +379,31 @@ export const SkillMultiselectCard: React.FC<SkillMultiselectCardProps> = ({
           type="button"
           onClick={() => onOpenChange(false)}
           disabled={submitting}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded transition-colors text-muted-foreground hover:text-foreground hover:bg-interactive-hover/30 disabled:opacity-50"
+          className={cn(
+            'flex items-center gap-1.5 font-medium rounded transition-colors text-muted-foreground hover:text-foreground hover:bg-interactive-hover/30 disabled:opacity-50 active:scale-[0.98]',
+            isMobile ? 'py-2.5 px-4 text-sm' : 'px-3 py-1.5 text-sm',
+          )}
         >
           Cancel
         </button>
-        <div className="ml-auto text-[11px] text-muted-foreground/70">
-          ↑↓ navigate • Enter toggle • <kbd className="px-1 py-0.5 rounded bg-muted/40 border border-border/30">⌘</kbd>+<kbd className="px-1 py-0.5 rounded bg-muted/40 border border-border/30">↵</kbd> confirm
-        </div>
+        {/* Keyboard hints are desktop-only — touch users have no keyboard */}
+        {!isMobile ? (
+          <div className="ml-auto text-[11px] text-muted-foreground/70 whitespace-nowrap">
+            ↑↓ navigate • Enter toggle • <kbd className="px-1 py-0.5 rounded bg-muted/40 border border-border/30">⌘</kbd>+<kbd className="px-1 py-0.5 rounded bg-muted/40 border border-border/30">↵</kbd> confirm
+          </div>
+        ) : null}
       </div>
+
+      {/* Skill content preview modal — non-invasive: doesn't block the list.
+          User can close it + continue selecting. */}
+      <SkillPreviewDialog
+        open={previewSkill !== null}
+        onOpenChange={(o) => { if (!o) setPreviewSkill(null); }}
+        skillName={previewSkill?.name ?? ''}
+        skillContent={previewSkill?.content}
+        skillScope={previewSkill?.scope}
+        skillSource={previewSkill?.source}
+      />
     </div>
   );
 };
