@@ -38,6 +38,7 @@ import {
   getCachedProxyTarget,
   getBrowserProxyTargetKey,
   previewProxyTargetCache,
+  clearPreviewProxyCache,
 } from '@/lib/preview/screenshot-capture';
 
 const CONTEXT_PANEL_MIN_WIDTH = 380;
@@ -620,7 +621,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
           return;
         }
 
-        previewProxyTargetCache.set(proxyCacheKey, { proxyBasePath, previewToken, expiresAt });
+        const _entry = { proxyBasePath, previewToken, expiresAt };
+        previewProxyTargetCache.set(proxyCacheKey, _entry);
         if (!cancelled) {
           setProxyState({ status: 'ready', proxyBasePath, previewToken, expiresAt });
         }
@@ -999,7 +1001,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
       }
 
       if (response.status === 403 || response.status === 404) {
-        previewProxyTargetCache.delete(proxyCacheKey);
+        // Sidecar restarted: every cached target is stale, not just this one.
+        clearPreviewProxyCache();
         setProxyState({ status: 'loading' });
         bumpProxyRegistration();
         return;
@@ -1433,7 +1436,8 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
           return;
         }
 
-        previewProxyTargetCache.set(proxyTargetKey, { proxyBasePath, previewToken, expiresAt });
+        const _entry2 = { proxyBasePath, previewToken, expiresAt };
+        previewProxyTargetCache.set(proxyTargetKey, _entry2);
         if (!cancelled) {
           setProxyState({ status: 'ready', proxyBasePath, previewToken, expiresAt });
         }

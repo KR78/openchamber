@@ -205,10 +205,27 @@ export const previewProxyTargetCache = new Map<string, CachedProxyTarget>();
 const previewProxyTargetRequests = new Map<string, Promise<CachedProxyTarget | null>>();
 const PREVIEW_PROXY_CACHE_SAFETY_MS = 30_000;
 
+// Track the opencode sidecar generation. Any 404 from a preview proxy fetch
+// means the server-side target map was wiped (sidecar restart) — so every
+// cached entry is now stale, not just the one that 404'd. clearPreviewProxyCache
+// wipes the map and bumps the generation; getCachedProxyTarget refuses entries
+// from a prior generation, forcing a fresh POST /api/preview/targets.
+let previewProxyCacheGeneration = 0;
+const previewProxyEntryGeneration = new WeakMap<CachedProxyTarget, number>();
+
+export const clearPreviewProxyCache = (): void => {
+  previewProxyTargetCache.clear();
+  previewProxyCacheGeneration += 1;
+};
+
 export const getCachedProxyTarget = (url: string): CachedProxyTarget | null => {
   const entry = previewProxyTargetCache.get(url);
   if (!entry) return null;
   if (entry.expiresAt - Date.now() <= PREVIEW_PROXY_CACHE_SAFETY_MS) {
+    previewProxyTargetCache.delete(url);
+    return null;
+  }
+  if (previewProxyEntryGeneration.get(entry) !== previewProxyCacheGeneration) {
     previewProxyTargetCache.delete(url);
     return null;
   }
@@ -496,6 +513,7 @@ const getExternalResourceProxyUrl = async (url: URL): Promise<string> => {
       }
 
       const target = { proxyBasePath, expiresAt };
+      previewProxyEntryGeneration.set(target, previewProxyCacheGeneration);
       previewProxyTargetCache.set(targetKey, target);
       return target;
     } catch {
