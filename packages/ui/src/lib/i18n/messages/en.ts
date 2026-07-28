@@ -1912,6 +1912,8 @@ export const dict = {
   'chat.messageBody.actions.copyMessage': 'Copy message',
   'chat.messageBody.actions.pinContext': 'Pin into context (survives compaction)',
   'chat.messageBody.actions.unpinContext': 'Unpin from context (will not survive compaction)',
+  'chat.messageBody.actions.quoteMessage': 'Quote this message',
+  'chat.messageBody.actions.removeQuote': 'Remove quote',
   'chat.messageBody.actions.contextPinFailed': 'Could not update the context pin',
   'chat.messageBody.actions.openPreviewAria': 'Open preview',
   'chat.messageBody.actions.openPreview': 'Open preview',

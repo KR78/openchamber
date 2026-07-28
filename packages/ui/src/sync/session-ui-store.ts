@@ -228,6 +228,21 @@ export type SessionHistoryMeta = {
   nextCursor?: string
 }
 
+
+// Quoted message — drafted for the next send. Injected as a blockquote prefix.
+export type QuotedMessage = {
+  messageId: string
+  sessionId: string
+  /** Plain text excerpt used for the preview chip + injected into the prompt. */
+  text: string
+  /** Full message text for the expand popover. */
+  fullText: string
+  /** "user" | "assistant" — drives the preview label + icon. */
+  role: "user" | "assistant"
+  /** ISO timestamp of the original message (for display). */
+  createdAt?: string
+}
+
 export type SessionUIState = {
   currentSessionId: string | null
   currentSessionDirectory: string | null
@@ -247,6 +262,14 @@ export type SessionUIState = {
   sessionPlanAvailable: Map<string, boolean>
   markSessionPlanAvailable: (sessionId: string) => void
   isSessionPlanAvailable: (sessionId: string) => boolean
+
+  // Quoted message — per-session quote drafted for the next send. Cleared on send.
+  // Set by the quote button on any message hover action bar; injected as a
+  // blockquote prefix into the next outgoing prompt by ChatInput.handleSubmit.
+  quotedMessage: Map<string, QuotedMessage>
+  setQuotedMessage: (sessionId: string, quote: QuotedMessage | null) => void
+  clearQuotedMessage: (sessionId: string) => void
+  getQuotedMessage: (sessionId: string) => QuotedMessage | undefined
 
   // Non-Git mode: dismissed signature hash per session, hides bar until new turn arrives
   pendingChangesBarDismissed: Map<string, string>
@@ -550,6 +573,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   lastLoadedDirectory: null,
   sessionPlanAvailable: new Map(),
   pendingChangesBarDismissed: new Map(),
+  quotedMessage: new Map(),
 
   // ---------------------------------------------------------------------------
   // setCurrentSession
@@ -994,6 +1018,25 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   getWorktreeMetadata: (sessionId) => get().worktreeMetadata.get(sessionId),
 
+  // --- Quoted message -------------------------------------------------------
+  // Per-session quote drafted for the next send. Cleared on send or explicitly.
+  setQuotedMessage: (sessionId, quote) => {
+    const map = new Map(get().quotedMessage);
+    if (quote === null) {
+      map.delete(sessionId);
+    } else {
+      map.set(sessionId, quote);
+    }
+    set({ quotedMessage: map });
+  },
+  clearQuotedMessage: (sessionId) => {
+    const map = new Map(get().quotedMessage);
+    if (!map.has(sessionId)) return;
+    map.delete(sessionId);
+    set({ quotedMessage: map });
+  },
+  getQuotedMessage: (sessionId) => get().quotedMessage.get(sessionId),
+
   dismissPendingChangesBar: (sessionId, signature) => {
     const map = new Map(get().pendingChangesBarDismissed);
     if (signature === null) {
@@ -1028,6 +1071,12 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       const map = new Map(get().pendingChangesBarDismissed);
       map.delete(sid);
       set({ pendingChangesBarDismissed: map });
+      // Clear the quoted-message draft — it was already injected by ChatInput.
+      const quoteMap = new Map(get().quotedMessage);
+      if (quoteMap.has(sid)) {
+        quoteMap.delete(sid);
+        set({ quotedMessage: quoteMap });
+      }
     }
 
     const draft = get().newSessionDraft

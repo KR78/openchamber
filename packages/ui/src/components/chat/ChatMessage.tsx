@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import MessageBody from './message/MessageBody';
+import { MessageGroupTimestamp } from './message/MessageGroupTimestamp';
 import type { AgentMentionInfo } from './message/types';
 import type { StreamPhase, ToolPopupContent } from './message/types';
 import { deriveMessageRole } from './message/messageRole';
@@ -1023,6 +1024,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 data-message-id={message.info.id}
                 ref={messageContainerRef}
             >
+                {(() => {
+                    const created = (message.info as { time?: { created?: unknown } }).time?.created;
+                    return typeof created === 'number' && created > 0 ? (
+                        <MessageGroupTimestamp timestamp={created} />
+                    ) : null;
+                })()}
                 <div className="chat-message-column relative">
                     {isUser ? (
                         displayParts.length === 0 ? null : (

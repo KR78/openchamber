@@ -37,6 +37,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { toPng } from 'html-to-image';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
+import { QuoteButton } from './QuoteButton';
 import { formatTimestampForDisplay } from './timeFormat';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
@@ -464,10 +465,11 @@ const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
     revealedToolIdsByMessage.set(messageId, new Set(value));
 };
 
-const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, onRevert, onFork, contextPinned, contextPinPending, onToggleContextPin, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
+const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessionId, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, onRevert, onFork, contextPinned, contextPinPending, onToggleContextPin, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
     messageId: string;
     parts: Part[];
     messageCreatedAt?: number | null;
+    sessionId?: string | null;
     isMobile: boolean;
     alwaysShowActions?: boolean;
     hasTouchInput?: boolean;
@@ -509,6 +511,15 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
     let mentionInjected = false;
 
     const canCopyMessage = Boolean(onCopyMessage);
+
+    // Plain-text excerpt for the quote button (user message parts).
+    const userQuoteText = React.useMemo(() => {
+        const textParts = parts
+            .filter((part): part is Part & { type: 'text'; text?: string; content?: string } => part.type === 'text')
+            .map((part) => (part.text || part.content || '').trim())
+            .filter((text) => text.length > 0);
+        return textParts.join('\n');
+    }, [parts]);
     const isMessageCopied = Boolean(copiedMessage);
     const isTouchContext = Boolean(hasTouchInput ?? isMobile);
     const hasCopyableText = Boolean(hasTextContent);
@@ -674,6 +685,16 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                         <TooltipContent sideOffset={6}>{t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}</TooltipContent>
                     </Tooltip>
                 )}
+                {sessionId && hasCopyableText && (
+                    <QuoteButton
+                        messageId={messageId}
+                        sessionId={sessionId}
+                        text={userQuoteText}
+                        role="user"
+                        createdAt={messageCreatedAt ? new Date(messageCreatedAt).toISOString() : undefined}
+                        size="sm"
+                    />
+                )}
                 {canCopyMessage && hasCopyableText && (
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -780,6 +801,11 @@ interface AssistantMessageActionButtonsProps {
     };
     onShareImage: (sourceElement?: HTMLElement | null) => Promise<void>;
     ttsText: string;
+    quoteMessageId?: string;
+    quoteSessionId?: string | null;
+    quoteText?: string;
+    quoteRole?: 'user' | 'assistant';
+    quoteCreatedAt?: string;
 }
 
 const AssistantMessageActionButtons = React.memo(({
@@ -789,6 +815,11 @@ const AssistantMessageActionButtons = React.memo(({
     reviewTransferAction,
     onShareImage,
     ttsText,
+    quoteMessageId,
+    quoteSessionId,
+    quoteText,
+    quoteRole,
+    quoteCreatedAt,
 }: AssistantMessageActionButtonsProps) => {
     const { t } = useI18n();
     const chatSurfaceMode = useChatSurfaceMode();
@@ -985,6 +1016,16 @@ const AssistantMessageActionButtons = React.memo(({
                     <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.copyAnswer')}</TooltipContent>
                 </Tooltip>
             )}
+            {quoteMessageId && quoteSessionId ? (
+                <QuoteButton
+                    messageId={quoteMessageId}
+                    sessionId={quoteSessionId}
+                    text={quoteText ?? ''}
+                    role={quoteRole ?? 'assistant'}
+                    createdAt={quoteCreatedAt}
+                    hidden={chatSurfaceMode === 'mini-chat'}
+                />
+            ) : null}
             {reviewTransferAction && chatSurfaceMode !== 'mini-chat' ? (
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -1113,6 +1154,12 @@ const AssistantMessageBody = React.memo(({
     React.useEffect(() => {
         toolRevealReadyRef.current = true;
     }, []);
+
+    // Plain-text excerpt for the quote button (mirrors ChatMessage's copy text).
+    const assistantQuoteText = React.useMemo(
+        () => flattenAssistantTextParts(parts),
+        [parts],
+    );
 
     const isTouchContext = Boolean(hasTouchInput ?? isMobile);
     const alwaysShowMessageActions = Boolean(alwaysShowActions ?? isMobile);
@@ -1702,8 +1749,13 @@ const AssistantMessageBody = React.memo(({
             onShareImage={shareMessageAsImage}
             ttsText={assistantPlanText}
             reviewTransferAction={reviewTransferAction}
+            quoteMessageId={messageId}
+            quoteSessionId={sessionId}
+            quoteText={assistantQuoteText}
+            quoteRole="assistant"
+            quoteCreatedAt={messageCreatedAt}
         />
-    ), [assistantPlanText, hasCopyableText, isTouchContext, onCopyMessage, reviewTransferAction, shareMessageAsImage]);
+    ), [assistantPlanText, assistantQuoteText, hasCopyableText, isTouchContext, messageCreatedAt, messageId, onCopyMessage, reviewTransferAction, sessionId, shareMessageAsImage]);
 
     const renderJustificationActions = React.useCallback((activity: NonNullable<TurnGroupingContext['activityParts']>[number]) => {
         if (!showSplitAssistantMessageActions || !isSortedRenderMode) {
@@ -2337,6 +2389,7 @@ const MessageBody = React.memo(({ isUser, ...props }: MessageBodyProps) => {
                 messageId={props.messageId}
                 parts={props.parts}
                 messageCreatedAt={props.messageCreatedAt}
+                sessionId={props.sessionId}
                 isMobile={props.isMobile}
                 alwaysShowActions={props.alwaysShowActions}
                 hasTouchInput={props.hasTouchInput}

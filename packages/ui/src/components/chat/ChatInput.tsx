@@ -19,7 +19,7 @@ import {
 } from '@/sync/attachment-files';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
-import { useDirectorySync, useUserMessageHistory } from '@/sync/sync-context';
+import { useDirectorySync, useSessionMessageRecords, useUserMessageHistory } from '@/sync/sync-context';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { appendInlineComments } from '@/lib/messages/inlineComments';
@@ -41,6 +41,7 @@ import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion 
 import ToolOutputDialog from './message/ToolOutputDialog';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
+import { QuotedMessagePreview } from './QuotedMessagePreview';
 import { AutoReviewBanner } from './AutoReviewBanner';
 import { FileMentionAutocomplete, type FileMentionHandle } from './FileMentionAutocomplete';
 import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo } from './CommandAutocomplete';
@@ -1052,6 +1053,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         Promise.resolve((useSessionUIStore.getState().sendMessage as (...a: unknown[]) => unknown)(...args)),
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+
+    // Quote draft for the next send (per-session). Cleared on send by the store.
+    const quotedMessage = useSessionUIStore((state) =>
+        currentSessionId ? state.quotedMessage.get(currentSessionId) : undefined,
+    );
+    const clearQuotedMessage = useSessionUIStore((state) => state.clearQuotedMessage);
+
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
     const currentSessionDirectoryForSync = useSessionUIStore(
@@ -1098,6 +1106,63 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
     const [skillMultiselectOpen, setSkillMultiselectOpen] = React.useState(false);
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
+
+    // Skills already loaded in the current session (via the `skill` tool).
+    // Scanned from the session's message parts so the multiselect card can
+    // badge them as "loaded". Recomputed when the session changes or messages
+    // update. Deduped into a Set for O(1) lookup.
+    const sessionMessageRecords = useSessionMessageRecords(
+        currentSessionId ?? '',
+        currentSessionDirectoryForSync ?? undefined,
+    );
+    const loadedSkillsInSession = React.useMemo(() => {
+        const loaded = new Set<string>();
+        if (!currentSessionId) return loaded;
+
+        // Compaction awareness: when a session is compacted (auto or manual),
+        // OpenCode summarizes everything before `tail_start_id` into a text
+        // summary and drops the original part content from the LLM context.
+        // Only messages at/after `tail_start_id` remain verbatim, so skill
+        // tool calls before the boundary are NOT in the model's context.
+        // Counting them would make the badge show ~14 "loaded" skills when
+        // only ~1 is actually active.
+        //
+        // Two passes are required: the CompactionPart lives in a message that
+        // comes AFTER tail_start_id in the timeline, so we can't clear() inline
+        // (that would erase valid tail skills). Find the boundary first, then
+        // collect from the boundary onward.
+        let tailStartMessageId: string | null = null;
+        for (const record of sessionMessageRecords) {
+            for (const part of record.parts) {
+                if (part.type === 'compaction' && part.tail_start_id) {
+                    // Keep the last seen — most recent compaction boundary
+                    // (sessions can be compacted multiple times).
+                    tailStartMessageId = part.tail_start_id;
+                }
+            }
+        }
+
+        // Walk messages in order. Skip everything before the tail-start message
+        // (it was summarized away). From the tail-start onward, collect skill
+        // names. If there was no compaction, collect from the beginning.
+        let reachedTailStart = tailStartMessageId === null;
+        for (const record of sessionMessageRecords) {
+            if (!reachedTailStart) {
+                if (record.info.id === tailStartMessageId) {
+                    reachedTailStart = true;
+                } else {
+                    continue;
+                }
+            }
+            for (const part of record.parts) {
+                if (part.type === 'tool' && part.tool === 'skill') {
+                    const name = part.state.input.name;
+                    if (typeof name === 'string') loaded.add(name);
+                }
+            }
+        }
+        return loaded;
+    }, [currentSessionId, sessionMessageRecords]);
 
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
     const currentModelId = useConfigStore((state) => state.currentModelId);
@@ -1848,6 +1913,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const inputSnapshot = getCurrentInputSnapshot();
         if (!inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget) return;
 
+        // Slash commands are UI actions (open modals, run summaries, etc.), not
+        // messages. Queueing them as raw text means they'd be sent as plain text
+        // later — never executed as commands — leaving a stale queue item.
+        // Instead, execute the command immediately via handleSubmit, which
+        // parses + dispatches it (opening the modal, running /summary, etc.).
+        const trimmed = inputSnapshot.message.trimStart();
+        if (inputMode === 'normal' && trimmed.startsWith('/')) {
+            void handleSubmitRef.current({ delivery: 'steer' });
+            return;
+        }
+
         const drafts = inlineDraftTarget ? consumeDrafts(inlineDraftTarget) : [];
 
         let messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
@@ -2028,6 +2104,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (queuedMessagesToSend.length === 0) {
                 // No queue - current input is primary
                 primaryText = messageText;
+                // Prepend the quoted message as a blockquote prefix.
+                const activeQuote = currentSessionId ? useSessionUIStore.getState().getQuotedMessage(currentSessionId) : undefined;
+                if (activeQuote && activeQuote.text.trim().length > 0) {
+                    const quoteBlock = activeQuote.text.split('\n').map((line) => `> ${line}`).join('\n');
+                    primaryText = `${quoteBlock}\n\n${primaryText}`;
+                }
                 primaryAttachments = [...attachmentsToSend, ...mentionAttachments];
             } else {
                 // Has queue - current input is additional part
@@ -5272,6 +5354,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         <div className="flex items-center gap-1 px-3 pt-1 flex-wrap relative z-10">
                             <AttachedVSCodeFileChips onShowPopup={handleShowAttachmentPreview} />
                             <ActiveEditorFileSuggestion />
+                            {quotedMessage ? (
+                                <QuotedMessagePreview
+                                    quote={quotedMessage}
+                                    onClear={() => currentSessionId && clearQuotedMessage(currentSessionId)}
+                                />
+                            ) : null}
                         </div>
                         <div className={cn("relative overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                             {/* No highlight mirror on mobile: over wrapped text its
@@ -5338,6 +5426,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     }
                                     mobileExpandIntentRef.current = null;
                                     setMobileTextareaFocused(true);
+                                    // Recompute autocomplete state on focus.
+                                    // The mobile textarea unmounts when the composer
+                                    // collapses (blur) — but showSkillAutocomplete /
+                                    // showCommandAutocomplete state lives in this
+                                    // parent component and survives the unmount.
+                                    // Without this recompute, a stale skill/command
+                                    // autocomplete renders immediately on refocus
+                                    // (before the user types anything), and typing
+                                    // '/' can show skills instead of commands.
+                                    // Reading selectionStart synchronously after
+                                    // focus is safe — the value is already mounted.
+                                    requestAnimationFrame(() => {
+                                        const ta = textareaRef.current;
+                                        if (!ta) return;
+                                        const pos = ta.selectionStart ?? ta.value.length;
+                                        updateAutocompleteState(ta.value, pos);
+                                    });
                                 }}
                                 onBlur={() => {
                                     if (!isMobile) return;
@@ -5646,13 +5751,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             open={skillMultiselectOpen}
             onOpenChange={setSkillMultiselectOpen}
             isMobile={isMobile}
+            loadedSkills={loadedSkillsInSession}
             onConfirm={async (selectedSkillNames) => {
                 if (!currentSessionId) return;
                 try {
                     await sessionActions.waitForConnectionOrThrow();
                     const skillList = selectedSkillNames.join(', ');
-                    const visibleText = `Load these skills via use_skill: ${skillList}`;
-                    const instructionsText = `Load the following skills via the use_skill tool, one call per skill: ${skillList}. After loading all of them, confirm with the user whether any additional skills are needed for the current task before proceeding.`;
+                    const visibleText = `Load these skills via the skill tool: ${skillList}`;
+                    const instructionsText = `Load the following skills via the skill tool, one call per skill: ${skillList}. After loading all of them, confirm with the user whether any additional skills are needed for the current task before proceeding.`;
                     await sendMessage(
                         visibleText,
                         currentProviderId,

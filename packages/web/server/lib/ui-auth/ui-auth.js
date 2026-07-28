@@ -6,7 +6,7 @@ import os from 'os';
 import { createUiPasskeys } from './ui-passkeys.js';
 
 const SESSION_COOKIE_NAME = 'oc_ui_session';
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // lab: 7d default (was 12h). Tailscale-only network.
 const TRUSTED_DEVICE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const URL_AUTH_TOKEN_TTL_MS = 60 * 1000;
 const URL_AUTH_TOKEN_PREFIX = 'oc_url_';

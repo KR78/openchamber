@@ -109,9 +109,11 @@ const fetchSessionStatus = async (): Promise<Response> => {
 
 const readStoredTrustDevice = (): boolean => {
   if (typeof window === 'undefined') {
-    return false;
+    return true;
   }
-  return window.localStorage.getItem(TRUST_DEVICE_STORAGE_KEY) === 'true';
+  // lab: default to trusted (7d sessions). Tailscale-only network.
+  const stored = window.localStorage.getItem(TRUST_DEVICE_STORAGE_KEY);
+  return stored === null ? true : stored === 'true';
 };
 
 const submitPassword = async (password: string, trustDevice: boolean): Promise<Response> => {
