@@ -49,6 +49,8 @@ export interface OutgoingMessageInput {
     syntheticTexts: readonly string[];
     linkedIssueContext: string | null;
     linkedPr: { instructions: string; context: string } | null;
+    /** Optional quoted message text, prepended as a blockquote prefix. */
+    quotedText?: string | null;
 }
 
 /**
@@ -166,6 +168,12 @@ export function buildOutgoingMessage(
     const skillInstruction = deps.buildSkillInstruction(skillNames);
     if (skillInstruction) {
         additionalParts.push({ text: skillInstruction, synthetic: true });
+    }
+
+    // Quote draft: inject as a blockquote prefix on the primary message.
+    if (input.quotedText && input.quotedText.trim().length > 0 && primaryText) {
+        const quoteBlock = input.quotedText.trim().split('\n').map((line) => `> ${line}`).join('\n');
+        primaryText = `${quoteBlock}\n\n${primaryText}`;
     }
 
     return {

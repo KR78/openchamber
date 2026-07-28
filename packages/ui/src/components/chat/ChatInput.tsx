@@ -35,6 +35,7 @@ import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion 
 import ToolOutputDialog from './message/ToolOutputDialog';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
+import { QuotedMessagePreview } from './QuotedMessagePreview';
 import { AutoReviewBanner } from './AutoReviewBanner';
 import type { FileMentionHandle } from './FileMentionAutocomplete';
 import type { CommandAutocompleteHandle, CommandInfo } from './CommandAutocomplete';
@@ -293,6 +294,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         Promise.resolve((useSessionUIStore.getState().sendMessage as (...a: unknown[]) => unknown)(...args)),
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+
+    // Quote draft for the next send (per-session). Cleared on send by the store.
+    const quotedMessage = useSessionUIStore((state) =>
+        currentSessionId ? state.quotedMessage.get(currentSessionId) : undefined,
+    );
+    const clearQuotedMessage = useSessionUIStore((state) => state.clearQuotedMessage);
+
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
     const currentSessionDirectoryForSync = useSessionUIStore(
@@ -1011,6 +1019,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             useSkillsStore.getState().skills.map((skill) => skill.name),
         );
 
+        const activeQuote = currentSessionId ? useSessionUIStore.getState().getQuotedMessage(currentSessionId) : undefined;
         const outgoing = buildOutgoingMessage({
             queued: queuedMessagesToSend,
             composerText: !queuedOnly && inputSnapshot.hasContent ? inputSnapshot.message : null,
@@ -1021,6 +1030,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             linkedPr: linkedPr
                 ? { instructions: linkedPr.instructionsText, context: linkedPr.contextText }
                 : null,
+            quotedText: activeQuote?.text ?? null,
         }, {
             parseAgentMention: (text) => {
                 const { sanitizedText, mention } = parseAgentMentions(text, agents);
@@ -2583,6 +2593,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         <div className="flex items-center gap-1 px-3 pt-1 flex-wrap relative z-10">
                             <AttachedVSCodeFileChips onShowPopup={handleShowAttachmentPreview} />
                             <ActiveEditorFileSuggestion />
+                            {quotedMessage ? (
+                                <QuotedMessagePreview
+                                    quote={quotedMessage}
+                                    onClear={() => currentSessionId && clearQuotedMessage(currentSessionId)}
+                                />
+                            ) : null}
                         </div>
                         <div
                             className={cn("relative overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}
