@@ -10,6 +10,7 @@
  */
 
 import React from 'react';
+import { QuoteGlyph } from './QuoteGlyph';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -36,15 +37,6 @@ interface QuoteButtonProps {
     hidden?: boolean;
 }
 
-const QuoteGlyph = React.memo(({ className }: { className?: string }) => (
-    // 24×24 viewBox matches the icon sprite; the double-quote path is drawn
-    // large + bold so it reads clearly at h-3.5/h-4 button sizes.
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-        <path d="M7 7c-2.2 0-4 1.8-4 4v6h6v-6H5.5c0-1.7 1.3-3 3-3V7zm10 0c-2.2 0-4 1.8-4 4v6h6v-6h-3.5c0-1.7 1.3-3 3-3V7z" />
-    </svg>
-));
-QuoteGlyph.displayName = 'QuoteGlyph';
-
 export const QuoteButton = React.memo(({
     messageId,
     sessionId,
@@ -56,11 +48,12 @@ export const QuoteButton = React.memo(({
     hidden = false,
 }: QuoteButtonProps) => {
     const { t } = useI18n();
-    const isActive = useSessionUIStore((state) =>
-        sessionId ? state.quotedMessage.get(sessionId)?.messageId === messageId : false,
-    );
-    const setQuotedMessage = useSessionUIStore((state) => state.setQuotedMessage);
-    const clearQuotedMessage = useSessionUIStore((state) => state.clearQuotedMessage);
+    const isActive = useSessionUIStore((state) => {
+        if (!sessionId) return false;
+        const list = state.quotedMessages.get(sessionId);
+        return list ? list.some((q) => q.messageId === messageId) : false;
+    });
+    const toggleQuotedMessage = useSessionUIStore((state) => state.toggleQuotedMessage);
 
     const canQuote = Boolean(sessionId) && text.trim().length > 0;
 
@@ -68,11 +61,6 @@ export const QuoteButton = React.memo(({
         event.stopPropagation();
         event.preventDefault();
         if (!sessionId || !canQuote) return;
-
-        if (isActive) {
-            clearQuotedMessage(sessionId);
-            return;
-        }
 
         const quote: QuotedMessage = {
             messageId,
@@ -82,13 +70,13 @@ export const QuoteButton = React.memo(({
             role,
             createdAt,
         };
-        setQuotedMessage(sessionId, quote);
-    }, [canQuote, clearQuotedMessage, createdAt, fullText, isActive, messageId, role, sessionId, setQuotedMessage, text]);
+        toggleQuotedMessage(sessionId, quote);
+    }, [canQuote, createdAt, fullText, messageId, role, sessionId, text, toggleQuotedMessage]);
 
     if (hidden || !canQuote) return null;
 
     const sizeClass = size === 'sm' ? 'h-6 w-6' : 'h-8 w-8';
-    const glyphClass = size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4';
+    const glyphClass = size === 'sm' ? 'h-5 w-5' : 'h-[22px] w-[22px]';
 
     return (
         <Tooltip>

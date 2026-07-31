@@ -49,8 +49,8 @@ export interface OutgoingMessageInput {
     syntheticTexts: readonly string[];
     linkedIssueContext: string | null;
     linkedPr: { instructions: string; context: string } | null;
-    /** Optional quoted message text, prepended as a blockquote prefix. */
-    quotedText?: string | null;
+    /** Optional quoted message texts, prepended as blockquote prefixes in order. */
+    quotedTexts?: readonly string[];
 }
 
 /**
@@ -170,10 +170,14 @@ export function buildOutgoingMessage(
         additionalParts.push({ text: skillInstruction, synthetic: true });
     }
 
-    // Quote draft: inject as a blockquote prefix on the primary message.
-    if (input.quotedText && input.quotedText.trim().length > 0 && primaryText) {
-        const quoteBlock = input.quotedText.trim().split('\n').map((line) => `> ${line}`).join('\n');
-        primaryText = `${quoteBlock}\n\n${primaryText}`;
+    // Quote drafts: inject each as a blockquote prefix on the primary message,
+    // oldest quote first so the order reads chronologically above the new text.
+    const quoteBlocks = (input.quotedTexts ?? [])
+        .map((q) => q.trim())
+        .filter((q) => q.length > 0)
+        .map((q) => q.split('\n').map((line) => `> ${line}`).join('\n'));
+    if (quoteBlocks.length > 0 && primaryText) {
+        primaryText = `${quoteBlocks.join('\n\n')}\n\n${primaryText}`;
     }
 
     return {

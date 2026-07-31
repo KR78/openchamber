@@ -789,6 +789,23 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         return true;
     }, [isUser, messageTextContent]);
 
+    // Quote toggle: adds/removes this message from the per-session quote draft.
+    const isQuoted = useSessionUIStore((state) => {
+        if (!sessionId || !message.info.id) return false;
+        return (state.quotedMessages.get(sessionId) ?? []).some((q) => q.messageId === message.info.id);
+    });
+    const handleQuoteMessage = React.useCallback(() => {
+        if (!sessionId || !message.info.id || !messageTextContent.trim()) return;
+        useSessionUIStore.getState().toggleQuotedMessage(sessionId, {
+            messageId: message.info.id,
+            sessionId,
+            text: messageTextContent.trim(),
+            fullText: messageTextContent.trim(),
+            role: isUser ? 'user' : 'assistant',
+            createdAt: message.info.createdAt ? new Date(message.info.createdAt).toISOString() : undefined,
+        });
+    }, [isUser, message.info.id, message.info.createdAt, messageTextContent, sessionId]);
+
     const handleRevert = React.useCallback(() => {
         if (!sessionId || !message.info.id) return;
         useSessionUIStore.getState().revertToMessage(sessionId, message.info.id);
@@ -1075,6 +1092,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 onContentChange={onContentChange}
                                                 shouldShowHeader={false}
                                                 hasTextContent={hasTextContent}
+                                                messageText={messageTextContent}
+                                                onQuoteMessage={handleQuoteMessage}
+                                                isQuoted={isQuoted}
                                                 onCopyMessage={handleCopyMessage}
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
@@ -1112,6 +1132,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 onContentChange={onContentChange}
                                                 shouldShowHeader={false}
                                                 hasTextContent={hasTextContent}
+                                                messageText={messageTextContent}
+                                                onQuoteMessage={handleQuoteMessage}
+                                                isQuoted={isQuoted}
                                                 onCopyMessage={handleCopyMessage}
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
@@ -1159,6 +1182,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 onContentChange={onContentChange}
                                 shouldShowHeader={shouldShowHeader}
                                 hasTextContent={hasTextContent}
+                                messageText={messageTextContent}
+                                onQuoteMessage={handleQuoteMessage}
+                                isQuoted={isQuoted}
                                 onCopyMessage={handleCopyMessage}
                                 copiedMessage={copiedMessage}
                                 onAuxiliaryContentComplete={handleAuxiliaryContentComplete}

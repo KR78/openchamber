@@ -20,11 +20,12 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
+import { QuoteGlyph } from './message/QuoteGlyph';
 import type { QuotedMessage } from '@/sync/session-ui-store';
 
 interface QuotedMessagePreviewProps {
-    quote: QuotedMessage;
-    onClear: () => void;
+    quotes: QuotedMessage[];
+    onRemove: (messageId: string) => void;
 }
 
 const PREVIEW_MAX_CHARS = 120;
@@ -34,94 +35,90 @@ function truncate(text: string, max: number): string {
     return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean;
 }
 
-// Quotation-mark glyph — 24×24 viewBox matches the icon sprite for visual
-// consistency with the other action-bar icons.
-const QuoteMark = React.memo(({ className }: { className?: string }) => (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-        <path d="M7 7c-2.2 0-4 1.8-4 4v6h6v-6H5.5c0-1.7 1.3-3 3-3V7zm10 0c-2.2 0-4 1.8-4 4v6h6v-6h-3.5c0-1.7 1.3-3 3-3V7z" />
-    </svg>
-));
-QuoteMark.displayName = 'QuoteMark';
-
-export const QuotedMessagePreview = React.memo(({ quote, onClear }: QuotedMessagePreviewProps) => {
-    const [expanded, setExpanded] = React.useState(false);
-    const chipRef = React.useRef<HTMLDivElement>(null);
+export const QuotedMessagePreview = React.memo(({ quotes, onRemove }: QuotedMessagePreviewProps) => {
+    const [expandedIndex, setExpandedIndex] = React.useState<string | null>(null);
+    const chipRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
     const [popoverPos, setPopoverPos] = React.useState<{ top: number; left: number } | null>(null);
-    const preview = React.useMemo(() => truncate(quote.text, PREVIEW_MAX_CHARS), [quote.text]);
 
-    const openPopover = React.useCallback(() => {
-        const chip = chipRef.current;
+    const openPopover = React.useCallback((messageId: string) => {
+        const chip = chipRefs.current.get(messageId);
         if (!chip) return;
         const rect = chip.getBoundingClientRect();
-        // Position above the chip, clamped to the viewport.
         const left = Math.max(8, Math.min(rect.left, window.innerWidth - 360));
-        const top = Math.max(8, rect.top - 8); // popover height is dynamic; CSS flips it above
+        const top = Math.max(8, rect.top - 8);
         setPopoverPos({ top, left });
-        setExpanded(true);
+        setExpandedIndex(index);
     }, []);
 
-    const handleClick = React.useCallback((e: React.MouseEvent) => {
+    const handleClick = React.useCallback((messageId: string) => (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (expanded) {
-            setExpanded(false);
+        if (expandedIndex === messageId) {
+            setExpandedIndex(null);
         } else {
-            openPopover();
+            openPopover(messageId);
         }
-    }, [expanded, openPopover]);
+    }, [expandedIndex, openPopover]);
 
-    const handleClear = React.useCallback((e: React.MouseEvent) => {
+    const handleRemove = React.useCallback((messageId: string) => (e: React.MouseEvent) => {
         e.stopPropagation();
-        onClear();
-    }, [onClear]);
+        onRemove(messageId);
+    }, [onRemove]);
 
-    // Close popover on Escape or outside click
     React.useEffect(() => {
-        if (!expanded) return;
+        if (expandedIndex === null) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setExpanded(false);
+            if (e.key === 'Escape') setExpandedIndex(null);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [expanded]);
+    }, [expandedIndex]);
+
+    if (quotes.length === 0) return null;
+
+    const activeQuote = expandedIndex !== null ? quotes.find((q) => q.messageId === expandedIndex) ?? null : null;
 
     return (
         <>
-            <div
-                ref={chipRef}
-                className="relative flex items-center gap-1 rounded-md border border-[var(--status-info)]/30 bg-[var(--status-info)]/5 pl-1.5 pr-0.5 py-0.5 max-w-[280px]"
-            >
-                <QuoteMark className="h-3.5 w-3.5 flex-shrink-0 text-[var(--status-info)]" />
-
-                <button
-                    type="button"
-                    onClick={handleClick}
-                    className="flex min-w-0 items-center gap-1 text-left typography-ui-label text-[var(--surface-mutedForeground)] hover:text-[var(--surface-foreground)] transition-colors"
-                    aria-expanded={expanded}
-                    aria-label="Expand quoted message"
-                >
-                    <span className="truncate">{preview}</span>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={handleClear}
-                    className="ml-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]"
-                    aria-label="Remove quote"
-                    title="Remove quote"
-                >
-                    <Icon name="close" className="h-3 w-3" />
-                </button>
+            <div className="flex flex-wrap items-center gap-1 max-w-full">
+                {quotes.map((quote, index) => (
+                    <div
+                        key={quote.messageId}
+                        ref={(el) => {
+                            if (el) chipRefs.current.set(quote.messageId, el);
+                            else chipRefs.current.delete(quote.messageId);
+                        }}
+                        className="relative flex items-center gap-1 rounded-md border border-[var(--status-info)]/30 bg-[var(--status-info)]/5 pl-1.5 pr-0.5 py-0.5 max-w-[280px]"
+                    >
+                        <QuoteGlyph className="h-3.5 w-3.5 flex-shrink-0 text-[var(--status-info)]" />
+                        <button
+                            type="button"
+                            onClick={handleClick(quote.messageId)}
+                            className="flex min-w-0 items-center gap-1 text-left typography-ui-label text-[var(--surface-mutedForeground)] hover:text-[var(--surface-foreground)] transition-colors"
+                            aria-expanded={expandedIndex === quote.messageId}
+                            aria-label="Expand quoted message"
+                        >
+                            <span className="truncate">{truncate(quote.text, PREVIEW_MAX_CHARS)}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleRemove(quote.messageId)}
+                            className="ml-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]"
+                            aria-label="Remove quote"
+                            title="Remove quote"
+                        >
+                            <Icon name="close" className="h-3 w-3" />
+                        </button>
+                    </div>
+                ))}
             </div>
 
-            {expanded && popoverPos && (
+            {activeQuote && popoverPos && (
                 <>
-                    {/* Click-away backdrop */}
                     <div
                         className="fixed inset-0 z-40"
-                        onClick={() => setExpanded(false)}
+                        onClick={() => setExpandedIndex(null)}
                         aria-hidden
                     />
-                    {/* Popover — fixed positioning escapes overflow-hidden ancestors */}
                     <div
                         role="dialog"
                         aria-label="Quoted message"
@@ -142,11 +139,11 @@ export const QuotedMessagePreview = React.memo(({ quote, onClear }: QuotedMessag
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="mb-1.5 flex items-center gap-1.5 typography-ui-label font-medium text-muted-foreground">
-                            <QuoteMark className="h-3 w-3 text-[var(--status-info)]" />
-                            <span>Quoting {quote.role === 'user' ? 'your message' : 'assistant'}</span>
+                            <QuoteGlyph className="h-3 w-3 text-[var(--status-info)]" />
+                            <span>Quoting {activeQuote.role === 'user' ? 'your message' : 'assistant'}</span>
                         </div>
                         <div className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed">
-                            {quote.fullText}
+                            {activeQuote.fullText}
                         </div>
                     </div>
                 </>

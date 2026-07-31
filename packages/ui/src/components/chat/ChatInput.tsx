@@ -159,6 +159,7 @@ const MAX_MOBILE_COMPOSER_LINES = 16;
  */
 const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
 const EMPTY_QUEUE: QueuedMessage[] = [];
+const EMPTY_QUOTES: readonly never[] = Object.freeze([]);
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
     if (file.name === filename) {
@@ -295,11 +296,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
 
-    // Quote draft for the next send (per-session). Cleared on send by the store.
-    const quotedMessage = useSessionUIStore((state) =>
-        currentSessionId ? state.quotedMessage.get(currentSessionId) : undefined,
+    // Quote drafts for the next send (per-session, ordered). Cleared on send by the store.
+    // The stable EMPTY_QUOTES constant avoids a new [] reference on every store
+    // read (which would cause an infinite re-render loop with zustand's Object.is
+    // equality — React error #185).
+    const quotedMessages = useSessionUIStore((state) =>
+        currentSessionId ? (state.quotedMessages.get(currentSessionId) ?? EMPTY_QUOTES) : EMPTY_QUOTES,
     );
-    const clearQuotedMessage = useSessionUIStore((state) => state.clearQuotedMessage);
+    const removeQuotedMessage = useSessionUIStore((state) => state.removeQuotedMessage);
+    const handleRemoveQuote = React.useCallback((messageId: string) => {
+        if (currentSessionId) removeQuotedMessage(currentSessionId, messageId);
+    }, [currentSessionId, removeQuotedMessage]);
 
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
@@ -1019,7 +1026,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             useSkillsStore.getState().skills.map((skill) => skill.name),
         );
 
-        const activeQuote = currentSessionId ? useSessionUIStore.getState().getQuotedMessage(currentSessionId) : undefined;
+        const activeQuotes = currentSessionId ? useSessionUIStore.getState().getQuotedMessages(currentSessionId) : [];
         const outgoing = buildOutgoingMessage({
             queued: queuedMessagesToSend,
             composerText: !queuedOnly && inputSnapshot.hasContent ? inputSnapshot.message : null,
@@ -1030,7 +1037,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             linkedPr: linkedPr
                 ? { instructions: linkedPr.instructionsText, context: linkedPr.contextText }
                 : null,
-            quotedText: activeQuote?.text ?? null,
+            quotedTexts: activeQuotes.map((q) => q.text),
         }, {
             parseAgentMention: (text) => {
                 const { sanitizedText, mention } = parseAgentMentions(text, agents);
@@ -2593,10 +2600,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         <div className="flex items-center gap-1 px-3 pt-1 flex-wrap relative z-10">
                             <AttachedVSCodeFileChips onShowPopup={handleShowAttachmentPreview} />
                             <ActiveEditorFileSuggestion />
-                            {quotedMessage ? (
+                            {quotedMessages.length > 0 ? (
                                 <QuotedMessagePreview
-                                    quote={quotedMessage}
-                                    onClear={() => currentSessionId && clearQuotedMessage(currentSessionId)}
+                                    quotes={quotedMessages}
+                                    onRemove={handleRemoveQuote}
                                 />
                             ) : null}
                         </div>

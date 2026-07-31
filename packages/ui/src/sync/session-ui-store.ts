@@ -263,13 +263,14 @@ export type SessionUIState = {
   markSessionPlanAvailable: (sessionId: string) => void
   isSessionPlanAvailable: (sessionId: string) => boolean
 
-  // Quoted message — per-session quote drafted for the next send. Cleared on send.
-  // Set by the quote button on any message hover action bar; injected as a
-  // blockquote prefix into the next outgoing prompt by ChatInput.handleSubmit.
-  quotedMessage: Map<string, QuotedMessage>
-  setQuotedMessage: (sessionId: string, quote: QuotedMessage | null) => void
-  clearQuotedMessage: (sessionId: string) => void
-  getQuotedMessage: (sessionId: string) => QuotedMessage | undefined
+  // Quoted messages — per-session ordered list drafted for the next send. Cleared on send.
+  // Toggled by the quote button on any message hover action bar; injected as
+  // blockquote prefixes into the next outgoing prompt by buildOutgoingMessage.
+  quotedMessages: Map<string, QuotedMessage[]>
+  toggleQuotedMessage: (sessionId: string, quote: QuotedMessage) => void
+  removeQuotedMessage: (sessionId: string, messageId: string) => void
+  clearQuotedMessages: (sessionId: string) => void
+  getQuotedMessages: (sessionId: string) => QuotedMessage[]
 
   // Non-Git mode: dismissed signature hash per session, hides bar until new turn arrives
   pendingChangesBarDismissed: Map<string, string>
@@ -573,7 +574,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   lastLoadedDirectory: null,
   sessionPlanAvailable: new Map(),
   pendingChangesBarDismissed: new Map(),
-  quotedMessage: new Map(),
+  quotedMessages: new Map(),
 
   // ---------------------------------------------------------------------------
   // setCurrentSession
@@ -1018,24 +1019,42 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   getWorktreeMetadata: (sessionId) => get().worktreeMetadata.get(sessionId),
 
-  // --- Quoted message -------------------------------------------------------
-  // Per-session quote drafted for the next send. Cleared on send or explicitly.
-  setQuotedMessage: (sessionId, quote) => {
-    const map = new Map(get().quotedMessage);
-    if (quote === null) {
+  // --- Quoted messages ------------------------------------------------------
+  // Per-session ordered list drafted for the next send. Cleared on send or explicitly.
+  toggleQuotedMessage: (sessionId, quote) => {
+    const map = new Map(get().quotedMessages);
+    const existing = map.get(sessionId) ?? [];
+    // Toggle: if already quoted, remove it; otherwise append.
+    const filtered = existing.filter((q) => q.messageId !== quote.messageId);
+    if (filtered.length === existing.length) {
+      // Not present — add it (preserves order of selection).
+      map.set(sessionId, [...existing, quote]);
+    } else if (filtered.length > 0) {
+      map.set(sessionId, filtered);
+    } else {
+      map.delete(sessionId);
+    }
+    set({ quotedMessages: map });
+  },
+  removeQuotedMessage: (sessionId, messageId) => {
+    const map = new Map(get().quotedMessages);
+    const existing = map.get(sessionId);
+    if (!existing) return;
+    const filtered = existing.filter((q) => q.messageId !== messageId);
+    if (filtered.length === 0) {
       map.delete(sessionId);
     } else {
-      map.set(sessionId, quote);
+      map.set(sessionId, filtered);
     }
-    set({ quotedMessage: map });
+    set({ quotedMessages: map });
   },
-  clearQuotedMessage: (sessionId) => {
-    const map = new Map(get().quotedMessage);
+  clearQuotedMessages: (sessionId) => {
+    const map = new Map(get().quotedMessages);
     if (!map.has(sessionId)) return;
     map.delete(sessionId);
-    set({ quotedMessage: map });
+    set({ quotedMessages: map });
   },
-  getQuotedMessage: (sessionId) => get().quotedMessage.get(sessionId),
+  getQuotedMessages: (sessionId) => get().quotedMessages.get(sessionId) ?? [],
 
   dismissPendingChangesBar: (sessionId, signature) => {
     const map = new Map(get().pendingChangesBarDismissed);
@@ -1071,11 +1090,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       const map = new Map(get().pendingChangesBarDismissed);
       map.delete(sid);
       set({ pendingChangesBarDismissed: map });
-      // Clear the quoted-message draft — it was already injected by ChatInput.
-      const quoteMap = new Map(get().quotedMessage);
+      // Clear the quoted-message drafts — they were already injected by buildOutgoingMessage.
+      const quoteMap = new Map(get().quotedMessages);
       if (quoteMap.has(sid)) {
         quoteMap.delete(sid);
-        set({ quotedMessage: quoteMap });
+        set({ quotedMessages: quoteMap });
       }
     }
 

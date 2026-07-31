@@ -37,6 +37,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { toPng } from 'html-to-image';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
+import { QuoteGlyph } from './QuoteGlyph';
 import { QuoteButton } from './QuoteButton';
 import { formatTimestampForDisplay } from './timeFormat';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
@@ -424,6 +425,10 @@ interface MessageBodyProps {
 
     shouldShowHeader?: boolean;
     hasTextContent?: boolean;
+    /** Authoritative plain-text excerpt (from ChatMessage's copy handler). */
+    messageText?: string;
+    onQuoteMessage?: () => void;
+    isQuoted?: boolean;
     onCopyMessage?: () => void | boolean | Promise<void | boolean>;
     copiedMessage?: boolean;
     onAuxiliaryContentComplete?: () => void;
@@ -465,11 +470,12 @@ const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
     revealedToolIdsByMessage.set(messageId, new Set(value));
 };
 
-const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessionId, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, onRevert, onFork, contextPinned, contextPinPending, onToggleContextPin, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
+const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessionId, messageText, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, onRevert, onFork, contextPinned, contextPinPending, onToggleContextPin, onQuoteMessage, isQuoted, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
     messageId: string;
     parts: Part[];
     messageCreatedAt?: number | null;
     sessionId?: string | null;
+    messageText?: string;
     isMobile: boolean;
     alwaysShowActions?: boolean;
     hasTouchInput?: boolean;
@@ -483,6 +489,8 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
     contextPinned?: boolean;
     contextPinPending?: boolean;
     onToggleContextPin?: () => void;
+    onQuoteMessage?: () => void;
+    isQuoted?: boolean;
     userActionsMode?: 'inline' | 'external-content' | 'external-actions';
     stickyUserHeaderEnabled?: boolean;
 }) => {
@@ -513,13 +521,6 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
     const canCopyMessage = Boolean(onCopyMessage);
 
     // Plain-text excerpt for the quote button (user message parts).
-    const userQuoteText = React.useMemo(() => {
-        const textParts = parts
-            .filter((part): part is Part & { type: 'text'; text?: string; content?: string } => part.type === 'text')
-            .map((part) => (part.text || part.content || '').trim())
-            .filter((text) => text.length > 0);
-        return textParts.join('\n');
-    }, [parts]);
     const isMessageCopied = Boolean(copiedMessage);
     const isTouchContext = Boolean(hasTouchInput ?? isMobile);
     const hasCopyableText = Boolean(hasTextContent);
@@ -685,15 +686,27 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
                         <TooltipContent sideOffset={6}>{t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}</TooltipContent>
                     </Tooltip>
                 )}
-                {sessionId && hasCopyableText && (
-                    <QuoteButton
-                        messageId={messageId}
-                        sessionId={sessionId}
-                        text={userQuoteText}
-                        role="user"
-                        createdAt={messageCreatedAt ? new Date(messageCreatedAt).toISOString() : undefined}
-                        size="sm"
-                    />
+                {onQuoteMessage && hasCopyableText && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                    'h-6 w-6 bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
+                                    isQuoted ? 'text-[color:var(--status-info)]' : 'text-muted-foreground',
+                                )}
+                                aria-pressed={isQuoted}
+                                aria-label={t(isQuoted ? 'chat.messageBody.actions.removeQuote' : 'chat.messageBody.actions.quoteMessage')}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => { event.stopPropagation(); onQuoteMessage(); }}
+                            >
+                                <QuoteGlyph className="h-5 w-5" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>{t(isQuoted ? 'chat.messageBody.actions.removeQuote' : 'chat.messageBody.actions.quoteMessage')}</TooltipContent>
+                    </Tooltip>
                 )}
                 {canCopyMessage && hasCopyableText && (
                     <Tooltip>
@@ -2391,6 +2404,9 @@ const MessageBody = React.memo(({ isUser, ...props }: MessageBodyProps) => {
                 parts={props.parts}
                 messageCreatedAt={props.messageCreatedAt}
                 sessionId={props.sessionId}
+                messageText={props.messageText}
+                onQuoteMessage={props.onQuoteMessage}
+                isQuoted={props.isQuoted}
                 isMobile={props.isMobile}
                 alwaysShowActions={props.alwaysShowActions}
                 hasTouchInput={props.hasTouchInput}
