@@ -13,9 +13,11 @@ import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
 import { createTrayController } from './tray.mjs';
 import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
+import { resolveStartupUrlProbePlan, shouldIgnoreLoopbackConnectionLimit } from './startup-url-selection.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
+import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { resolveUpdaterFeed } from './updater-feed.mjs';
 import {
   buildLinuxInstalledApps,
@@ -29,6 +31,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
+import { shouldAllowBrowserPanelCertificateError } from './browser-panel-security.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +39,7 @@ const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDev = process.env.OPENCHAMBER_ELECTRON_DEV === '1' || !app.isPackaged;
+const electronStartupStartedAt = performance.now();
 
 const DEEP_LINK_PROTOCOL = 'openchamber';
 const UI_PROTOCOL = 'openchamber-ui';
@@ -86,6 +90,16 @@ if (isDev) {
 }
 app.setAppUserModelId(APP_USER_MODEL_ID);
 app.commandLine.appendSwitch('proxy-bypass-list', '<-loopback>');
+// Lift Chromium's per-host cap only for bundled UI. Applying this to Vite HMR
+// lets the renderer request most of the module graph at once, overwhelming the
+// dev server's transform pipeline and leaving the HTML splash visible for up
+// to a minute before React mounts.
+if (shouldIgnoreLoopbackConnectionLimit({
+  development: isDev,
+  packagedUi: process.env.OPENCHAMBER_ELECTRON_USE_BUNDLED_UI === '1',
+})) {
+  app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost');
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -121,6 +135,32 @@ log.transports.console.level = isDev ? 'debug' : 'warn';
 // the fact. Route all console calls through electron-log so server-side
 // diagnostics are persisted.
 Object.assign(console, log.functions);
+
+const STARTUP_PERF_ENABLED_VALUES = new Set(['1', 'true']);
+const ELECTRON_STARTUP_PERF_PHASES = new Set([
+  'electron.app.ready',
+  'electron.server.start',
+  'electron.server.ready',
+  'electron.navigation.start',
+  'electron.navigation.ready',
+  'electron.renderer.dom-ready',
+  'electron.renderer.loaded',
+  'electron.window.ready-to-show',
+]);
+const ELECTRON_STARTUP_DOCUMENT_CLASSES = new Set(['splash', 'application']);
+const recordElectronStartupPerformance = (phase, details = {}) => {
+  const enabled = STARTUP_PERF_ENABLED_VALUES.has(String(process.env.OPENCHAMBER_STARTUP_PERF ?? '').toLowerCase());
+  if (!enabled || !ELECTRON_STARTUP_PERF_PHASES.has(phase)) return;
+  const event = {
+    phase,
+    at: Date.now(),
+    totalDurationMs: Math.max(0, performance.now() - electronStartupStartedAt),
+  };
+  if (Number.isFinite(details.durationMs) && details.durationMs >= 0) event.durationMs = details.durationMs;
+  if (ELECTRON_STARTUP_DOCUMENT_CLASSES.has(details.documentClass)) event.documentClass = details.documentClass;
+  log.info('[startup-performance]', event);
+};
+const classifyStartupDocument = (url) => String(url || '').startsWith('data:') ? 'splash' : 'application';
 
 const LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 try {
@@ -267,6 +307,9 @@ const readDesktopMinimizeToTrayStatus = () => {
   };
 };
 
+// Close-to-tray gate. The persisted key is still `desktopMinimizeToTrayEnabled`
+// (settings written by earlier versions), but the behavior it controls is the
+// window close path only; minimize stays a normal taskbar/dock minimize.
 const shouldHideMainWindowToTray = (browserWindow) => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return false;
   if (!state.trayController) return false;
@@ -861,6 +904,16 @@ const buildVersionUrl = (url) => {
   }
 };
 
+const buildSessionStatusUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, '') || ''}/auth/session`;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
 const classifyVersionPayload = (payload) => {
   const compatibility = payload?.compatibility;
   if (!payload || payload.status !== 'ok' || !compatibility || typeof compatibility !== 'object') {
@@ -895,7 +948,8 @@ const fetchVersionPayload = async (versionUrl, { headers, timeoutMs }) => {
 
 const probeHostWithTimeout = async (url, timeoutMs, clientToken = '', requestHeaders = {}, expectedServerId = '') => {
   const versionUrl = buildVersionUrl(url);
-  if (!versionUrl) {
+  const sessionStatusUrl = buildSessionStatusUrl(url);
+  if (!versionUrl || !sessionStatusUrl) {
     throw new Error('Invalid URL');
   }
 
@@ -939,8 +993,19 @@ const probeHostWithTimeout = async (url, timeoutMs, clientToken = '', requestHea
       return { status: 'unreachable', latencyMs: Date.now() - started };
     }
     const payload = await response.json().catch(() => null);
+    const versionStatus = classifyVersionPayload(payload);
+    if (versionStatus !== 'ok') {
+      return { status: versionStatus, latencyMs: Date.now() - started };
+    }
+    const sessionResponse = await fetchVersionPayload(sessionStatusUrl, { headers, timeoutMs });
+    if (sessionResponse.status === 401 || sessionResponse.status === 403) {
+      return { status: 'auth', latencyMs: Date.now() - started };
+    }
+    if (!sessionResponse.ok) {
+      return { status: 'unreachable', latencyMs: Date.now() - started };
+    }
     return {
-      status: classifyVersionPayload(payload),
+      status: versionStatus,
       latencyMs: Date.now() - started,
     };
   } catch {
@@ -1066,6 +1131,85 @@ const injectRuntimeConfigIntoHtml = (html) => {
   if (html.includes('<head>')) return html.replace('<head>', `<head>${initScript}`);
   if (html.includes('</head>')) return html.replace('</head>', `${initScript}</head>`);
   return `${initScript}${html}`;
+};
+
+/**
+ * The browser panel's own session, kept separate from OpenChamber's.
+ *
+ * Every page the user opens in the panel shares this partition, which is what
+ * lets a dev-server login persist between sessions without touching the app's
+ * own storage.
+ */
+const BROWSER_PANEL_PARTITION = 'persist:openchamber-browser';
+
+/**
+ * Denies device and location access to pages shown in the browser panel.
+ *
+ * Electron grants permission requests by default when no handler is set. The
+ * panel loads whatever address the user types, so that default would hand a
+ * page the camera, the microphone, or the user's location without anything
+ * being asked or shown — a browser people would not tolerate.
+ *
+ * This denies rather than prompts: a prompt is the right end state, but a
+ * silent grant is the one outcome that must not stay. Denials are logged so a
+ * page that legitimately needs something is diagnosable rather than mysterious.
+ */
+const MAX_FAVICON_BYTES = 512 * 1024;
+const FAVICON_MIME_TYPES = new Set([
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+]);
+
+/**
+ * Resolves a web contents id to a browser-panel view, or refuses.
+ *
+ * These commands take an id from the renderer, and an id is guessable. Without
+ * this a compromised renderer could point capture or the debugger at another
+ * window's contents. Membership of the panel's own session is the proof: only
+ * views created with that partition have it, and nothing else in the app does.
+ */
+const resolveBrowserPanelContents = (rawId) => {
+  const id = Number.isFinite(rawId) ? Math.trunc(rawId) : null;
+  if (id === null || id < 0) throw new Error('webContentsId is required');
+  const target = webContents.fromId(id);
+  if (!target || target.isDestroyed()) throw new Error('WebContents not found');
+  if (target.session !== session.fromPartition(BROWSER_PANEL_PARTITION)) {
+    throw new Error('That view is not a browser panel page');
+  }
+  return target;
+};
+
+const hardenBrowserPanelSession = () => {
+  const panelSession = session.fromPartition(BROWSER_PANEL_PARTITION);
+
+  app.on('certificate-error', (event, contents, url, error, _certificate, callback) => {
+    if (contents.session === panelSession && shouldAllowBrowserPanelCertificateError({ url, error })) {
+      event.preventDefault();
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+
+  panelSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    log.info('[electron] browser panel denied a permission request', {
+      permission,
+      origin: details?.requestingUrl || '',
+    });
+    callback(false);
+  });
+
+  // Asked before some features even request; answering here keeps a page from
+  // reporting a capability it would then be denied.
+  panelSession.setPermissionCheckHandler(() => false);
+
+  // Serial, HID and USB device pickers.
+  panelSession.setDevicePermissionHandler(() => false);
 };
 
 const registerPackagedUiProtocol = () => {
@@ -1313,11 +1457,16 @@ const loadShellEnv = () => {
 
 // Merge the user's login-shell env (PATH, etc.) into this process before we
 import { pathLooksUserConfigured, mergePathValues } from '@openchamber/web/server/lib/opencode/path-utils.js';
+import { clearAppImageArgv0FromProcessEnv } from '@openchamber/web/server/lib/inherited-env.js';
 
 // import/start the server in-process. The server and its children (opencode
 // CLI, git, etc.) inherit process.env directly now — there is no sidecar
 // subprocess to hand a custom env to.
 const inheritUserShellEnv = () => {
+  // Clear before probing/merging so login-shell snapshots and children never
+  // inherit the AppImage path as argv[0] via zsh's ARGV0 parameter (#2588).
+  clearAppImageArgv0FromProcessEnv();
+
   const shellEnv = loadShellEnv();
   if (!shellEnv) return;
 
@@ -1327,7 +1476,7 @@ const inheritUserShellEnv = () => {
   const currentPathLooksUserConfigured = pathLooksUserConfigured(currentPath, homeDir, delimiter);
 
   for (const [key, value] of Object.entries(shellEnv)) {
-    if (key === 'PATH') continue;
+    if (key === 'PATH' || key === 'ARGV0') continue;
     if (typeof process.env[key] === 'undefined') {
       process.env[key] = value;
     }
@@ -1345,6 +1494,8 @@ const shouldSkipLocalServer = () => {
 };
 
 const spawnLocalServer = async () => {
+  const serverStartedAt = performance.now();
+  recordElectronStartupPerformance('electron.server.start');
   inheritUserShellEnv();
 
   const settings = readSettingsRoot();
@@ -1428,6 +1579,9 @@ const spawnLocalServer = async () => {
 
   state.serverHandle = handle;
   state.sidecarUrl = url;
+  recordElectronStartupPerformance('electron.server.ready', {
+    durationMs: performance.now() - serverStartedAt,
+  });
 
   await mutateSettingsRoot((root) => {
     root.desktopLocalPort = port;
@@ -1556,15 +1710,13 @@ const buildInitScript = (localOrigin, bootOutcome, apiBaseUrl = '', clientToken 
   ].join('');
 };
 
-// Keep per-window init scripts aligned with state. Chooser/onboarding reloads after
-// desktop_hosts_set; if only state.initScript is updated, dom-ready reinjects a stale
-// not-configured outcome and the UI flickers on "Waiting for OpenCode".
-const syncInitScriptToWindows = (initScript = state.initScript) => {
+// Keep the main window aligned with global host configuration without overwriting
+// the runtime-specific bootstrap retained by additional and Mini Chat windows.
+const syncMainWindowInitScript = (initScript = state.initScript) => {
   if (!initScript) return;
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.__ocInitScript = initScript;
-    }
+  const mainWindow = state.mainWindow;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.__ocInitScript = initScript;
   }
 };
 
@@ -1719,8 +1871,19 @@ const isBenignNavigationAbort = (error) => {
 };
 
 const navigateWindow = async (browserWindow, url, { allowAbort = false } = {}) => {
+  const navigationStartedAt = performance.now();
+  const documentClass = classifyStartupDocument(url);
+  if (browserWindow.__ocLabel === 'main') {
+    recordElectronStartupPerformance('electron.navigation.start', { documentClass });
+  }
   try {
     await browserWindow.loadURL(url);
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.navigation.ready', {
+        documentClass,
+        durationMs: performance.now() - navigationStartedAt,
+      });
+    }
   } catch (error) {
     if (allowAbort && isBenignNavigationAbort(error)) {
       return;
@@ -1819,36 +1982,6 @@ const emitToAllWindows = (event, detail) => {
     emitToWindow(browserWindow, event, detail);
   }
 };
-
-// macOS vibrancy: the native NSVisualEffectView needs a moment to settle after
-// the window is shown/restored. Until then the renderer keeps the sidebar solid
-// to avoid a flash of raw transparency; once ready it switches to the
-// translucent overlay. We toggle this readiness over the same IPC bridge.
-// Apply vibrancy to a live, on-screen window. Done after show (not in the
-// BrowserWindow constructor) because macOS otherwise leaves the material
-// uncomposited on a cold launch until the window gets a state change.
-const applyMacVibrancy = (browserWindow) => {
-  if (process.platform !== 'darwin' || !browserWindow || browserWindow.isDestroyed()) return;
-  try {
-    browserWindow.setVibrancy('sidebar');
-  } catch {}
-};
-
-const setMacVibrancyReady = (browserWindow, ready) => {
-  if (process.platform !== 'darwin' || !browserWindow || browserWindow.isDestroyed()) return;
-  emitToWindow(browserWindow, 'openchamber:vibrancy-ready', { ready });
-};
-
-const scheduleMacVibrancyReady = (browserWindow, delayMs = 160) => {
-  if (process.platform !== 'darwin' || !browserWindow || browserWindow.isDestroyed()) return;
-  setMacVibrancyReady(browserWindow, false);
-  const timer = setTimeout(() => {
-    if (browserWindow.isDestroyed() || browserWindow.isMinimized() || !browserWindow.isVisible()) return;
-    setMacVibrancyReady(browserWindow, true);
-  }, delayMs);
-  if (typeof timer?.unref === 'function') timer.unref();
-};
-
 
 const setTaskbarProgress = (value) => {
   if (process.platform !== 'win32') return;
@@ -2113,6 +2246,23 @@ const dispatchDeepLink = (link) => {
     log.warn('[electron] invalid connect deep-link payload');
     return;
   }
+  // Sent by the MCP OAuth callback page after it completes authorization in
+  // the system browser. The work is already done server-side; all this has to
+  // do is bring the app back to the front, since the user's attention is in a
+  // browser tab at that moment.
+  if (link.type === 'focus') {
+    const target = state.mainWindow && !state.mainWindow.isDestroyed()
+      ? state.mainWindow
+      : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
+    if (target) {
+      if (target.isMinimized()) target.restore();
+      target.show();
+      target.focus();
+    }
+    emitToAllWindows('openchamber:deep-link-focus', { reason: link.value || null });
+    return;
+  }
+
   if (link.type === 'session' && link.value) {
     emitToAllWindows('openchamber:open-session', { sessionId: link.value });
     return;
@@ -2173,6 +2323,13 @@ const dispatchMenuAction = (action) => {
   const target = getMenuTargetWindow();
   emitToWindow(target, 'openchamber:menu-action', action);
   dispatchDomEventToWindow(target, 'openchamber:menu-action', action);
+};
+
+// Append-style menu actions must reach the renderer exactly once. Dual IPC+DOM
+// delivery (dispatchMenuAction) would insert the selection twice.
+const dispatchAddSelectionToChat = () => {
+  const target = getMenuTargetWindow();
+  if (target) emitToWindow(target, 'openchamber:menu-action', 'add-selection-to-chat');
 };
 
 // Mini-chat draft windows are not deduplicated, so this must reach the renderer
@@ -2255,8 +2412,6 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   const desktopMacosMajor = String(macosMajorVersion());
   const usesFramelessChrome = process.platform === 'win32' || process.platform === 'linux';
   const usesCustomTitleBar = process.platform === 'darwin' || usesFramelessChrome;
-  // macOS vibrancy, on by default; users can disable it (Appearance settings).
-  const useVibrancy = process.platform === 'darwin' && readSettingsRoot().desktopVibrancy !== false;
   const trayEnabled = process.platform !== 'darwin' || readSettingsRoot().desktopMacMenuBarEnabled !== false;
   const titleBarOverlayEnabled = false;
   const autoHidesNativeMenuBar = process.platform !== 'darwin';
@@ -2272,11 +2427,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     minHeight: MIN_WINDOW_HEIGHT,
     icon: windowIconPath,
     show: false,
-    backgroundColor: useVibrancy ? '#00000000' : '#151313',
-    // Vibrancy is applied after the window is shown (see applyMacVibrancy), not
-    // here: setting it in the constructor leaves the material uncomposited on a
-    // cold launch until a window event. No `transparent: true` either — vibrancy
-    // alone is enough and composites reliably once applied to a live window.
+    backgroundColor: '#151313',
     frame: usesFramelessChrome ? false : undefined,
     autoHideMenuBar: autoHidesNativeMenuBar,
     // Electron's hiddenInset adds its own extra inset, which leaves the controls
@@ -2292,7 +2443,6 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
         `--openchamber-runtime-headers=${JSON.stringify(desktopRequestHeaders)}`,
         `--openchamber-home=${desktopHome}`,
         `--openchamber-macos-major=${desktopMacosMajor}`,
-        `--openchamber-mac-vibrancy=${useVibrancy ? '1' : '0'}`,
         `--openchamber-tray-enabled=${trayEnabled ? '1' : '0'}`,
         `--openchamber-boot-outcome=${JSON.stringify(state.bootOutcome || null)}`,
         `--openchamber-relay-host-id=${rendererRuntimeConfig.relayHostId || ''}`,
@@ -2343,18 +2493,11 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     };
     browserWindow.on('minimize', () => {
       refreshTrafficLights();
-      setMacVibrancyReady(browserWindow, false);
     });
     browserWindow.on('restore', () => {
       refreshTrafficLights();
       setTimeout(refreshTrafficLights, 250);
-      scheduleMacVibrancyReady(browserWindow, 180);
     });
-    // Only suppress vibrancy around the minimize/restore cycle (it flashes raw
-    // transparency during the genie animation). A plain show — cold launch from
-    // the dock, un-hide — must NOT suppress, or the sidebar gets stuck solid
-    // when the post-show `ready` re-enable is skipped while the window is still
-    // animating in.
     browserWindow.on('show', refreshTrafficLights);
     browserWindow.on('focus', refreshTrafficLights);
   }
@@ -2375,12 +2518,6 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
   browserWindow.on('move', () => {
     debounceWindowStatePersist(browserWindow, false);
-  });
-  browserWindow.on('minimize', (event) => {
-    if (!shouldHideMainWindowToTray(browserWindow)) return;
-    debounceWindowStatePersist(browserWindow, true);
-    event.preventDefault();
-    browserWindow.hide();
   });
   browserWindow.on('close', (event) => {
     if (!state.quitRequested && shouldHideMainWindowToTray(browserWindow)) {
@@ -2430,6 +2567,13 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
       if (url.protocol === 'devtools:') return true;
       if (url.protocol === `${UI_PROTOCOL}:`) return true;
       if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+      // In development the renderer is served by Vite while state.localOrigin
+      // remains the separate local API server. Permit same-origin reloads from
+      // the renderer itself so Vite full-reload fallbacks stay in Electron.
+      try {
+        if (new URL(browserWindow.webContents.getURL()).origin === url.origin) return true;
+      } catch {
+      }
       if (state.localOrigin) {
         try {
           if (new URL(state.localOrigin).origin === url.origin) return true;
@@ -2476,16 +2620,23 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
 
   browserWindow.webContents.on('dom-ready', () => {
-    // Prefer authoritative state script so hosts_set updates survive reloads even if a
-    // window still holds a pre-activation / not-configured __ocInitScript.
-    const initScript = state.initScript || browserWindow.__ocInitScript;
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.renderer.dom-ready', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
+    const initScript = browserWindow.__ocInitScript;
     if (initScript) {
-      browserWindow.__ocInitScript = initScript;
       void browserWindow.webContents.executeJavaScript(initScript).catch(() => {});
     }
   });
 
   browserWindow.webContents.on('did-finish-load', () => {
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.renderer.loaded', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
     browserWindow.webContents.setZoomFactor(1);
     if (state.mainWindow && browserWindow.id === state.mainWindow.id && pendingDeepLinks.length > 0) {
       const timer = setTimeout(flushPendingDeepLinks, 400);
@@ -2494,9 +2645,13 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
 
   browserWindow.once('ready-to-show', () => {
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.window.ready-to-show', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
     browserWindow.show();
     browserWindow.focus();
-    if (useVibrancy) applyMacVibrancy(browserWindow);
   });
 
   if (url) {
@@ -2531,7 +2686,7 @@ const activateMainWindow = async (url, localOrigin, bootOutcome, runtimeConfig =
     rendererRuntimeConfig.clientToken,
     rendererRuntimeConfig.requestHeaders,
   );
-  syncInitScriptToWindows(state.initScript);
+  syncMainWindowInitScript(state.initScript);
 
   const mainWindow = state.mainWindow;
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2660,8 +2815,6 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   const desktopHome = os.homedir() || '';
   const desktopMacosMajor = String(macosMajorVersion());
   const usesFramelessChrome = process.platform === 'win32' || process.platform === 'linux';
-  // macOS vibrancy, on by default; users can disable it (Appearance settings).
-  const useVibrancy = process.platform === 'darwin' && readSettingsRoot().desktopVibrancy !== false;
   const trayEnabled = process.platform !== 'darwin' || readSettingsRoot().desktopMacMenuBarEnabled !== false;
   const browserWindow = new BrowserWindow({
     title: 'OpenChamber Mini Chat',
@@ -2671,11 +2824,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
     minHeight: MINI_CHAT_MIN_WINDOW_HEIGHT,
     icon: getWindowIconPath(),
     show: false,
-    backgroundColor: useVibrancy ? '#00000000' : '#151313',
-    // Vibrancy is applied after the window is shown (see applyMacVibrancy), not
-    // here: setting it in the constructor leaves the material uncomposited on a
-    // cold launch until a window event. No `transparent: true` either — vibrancy
-    // alone is enough and composites reliably once applied to a live window.
+    backgroundColor: '#151313',
     frame: usesFramelessChrome ? false : undefined,
     autoHideMenuBar: process.platform !== 'darwin',
     titleBarStyle: process.platform === 'darwin' || usesFramelessChrome ? 'hidden' : 'default',
@@ -2727,17 +2876,13 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
         browserWindow.setTrafficLightPosition({ x: 16, y: 17 });
       } catch {}
     };
-    // Suppress vibrancy only around minimize/restore, never on a plain show.
     browserWindow.on('show', refreshTrafficLights);
     browserWindow.on('focus', refreshTrafficLights);
-    browserWindow.on('minimize', () => setMacVibrancyReady(browserWindow, false));
-    browserWindow.on('restore', () => scheduleMacVibrancyReady(browserWindow, 180));
   }
 
   browserWindow.once('ready-to-show', () => {
     browserWindow.show();
     browserWindow.focus();
-    if (useVibrancy) applyMacVibrancy(browserWindow);
   });
 
   browserWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -2755,9 +2900,8 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
     void shell.openExternal(url).catch(() => {});
   });
   browserWindow.webContents.on('dom-ready', () => {
-    const initScript = state.initScript || browserWindow.__ocInitScript;
+    const initScript = browserWindow.__ocInitScript;
     if (initScript) {
-      browserWindow.__ocInitScript = initScript;
       void browserWindow.webContents.executeJavaScript(initScript).catch(() => {});
     }
   });
@@ -2806,16 +2950,22 @@ const resolveInitialUrl = async () => {
   const hmrUiPort = process.env.OPENCHAMBER_HMR_UI_PORT || '5173';
   const hmrApiUrl = `http://127.0.0.1:${hmrApiPort}`;
   const hmrUiUrl = `http://127.0.0.1:${hmrUiPort}`;
+  const usePackagedUi = shouldUsePackagedUi();
   const skipLocalServer = shouldSkipLocalServer();
+  const startupProbePlan = resolveStartupUrlProbePlan({
+    development: isDev,
+    packagedUi: usePackagedUi,
+    skipLocalServer,
+  });
   const localUrl = skipLocalServer
     ? null
-    : isDev && await waitForHealth(hmrApiUrl, 5_000, 100)
+    : startupProbePlan.probeHmrApi && await waitForHealth(hmrApiUrl, 5_000, 100)
       ? hmrApiUrl
       : await spawnLocalServer();
 
-  const localUiUrl = shouldUsePackagedUi()
+  const localUiUrl = usePackagedUi
     ? buildPackagedUiUrl('/index.html')
-    : isDev && await waitForHealth(hmrUiUrl, 8_000, 100)
+    : startupProbePlan.probeHmrUi && await waitForHealth(hmrUiUrl, 8_000, 100)
     ? hmrUiUrl
     : localUrl;
 
@@ -2835,14 +2985,14 @@ const resolveInitialUrl = async () => {
     apiBaseUrl = envTarget;
     clientToken = '';
     requestHeaders = {};
-    initialUrl = shouldUsePackagedUi() ? localUiUrl : envTarget;
+    initialUrl = usePackagedUi ? localUiUrl : envTarget;
   } else if (config.defaultHostId && config.defaultHostId !== LOCAL_HOST_ID) {
     const host = config.hosts.find((entry) => entry.id === config.defaultHostId);
     if (host?.url) {
       apiBaseUrl = host.apiUrl || host.url;
       clientToken = host.clientToken || '';
       requestHeaders = sanitizeRuntimeRequestHeaders(host.requestHeaders || {});
-      initialUrl = shouldUsePackagedUi() ? localUiUrl : host.url;
+      initialUrl = usePackagedUi ? localUiUrl : host.url;
     }
   }
 
@@ -2904,10 +3054,17 @@ const setupAutoUpdater = () => {
   const testBuild = typeof __OPENCHAMBER_UPDATER_E2E_BUILD__ !== 'undefined'
     && __OPENCHAMBER_UPDATER_E2E_BUILD__ === true;
   const feed = resolveUpdaterFeed({ testBuild });
+  const updaterChannel = feed.provider === 'github'
+    ? resolveUpdaterChannel({ platform: process.platform, architecture: process.arch })
+    : null;
+  if (updaterChannel) {
+    autoUpdater.channel = updaterChannel;
+  }
   autoUpdater.setFeedURL(feed);
   log.info('[electron] updater feed configured', {
     provider: feed.provider,
     target: feed.provider === 'github' ? `${feed.owner}/${feed.repo}` : feed.url,
+    channel: updaterChannel || 'latest',
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -3572,10 +3729,48 @@ const runSpecChain = (specs, appName) => {
   throw new Error(`Failed to open in ${appName}: ${failures.join('; ')}`);
 };
 
+// The tunnel client lives in the web package (it already has a WebSocket
+// client) and is loaded only if the user actually previews a remote dev server.
+let devTunnelClientPromise = null;
+const getDevTunnelClient = async () => {
+  if (!devTunnelClientPromise) {
+    devTunnelClientPromise = import('@openchamber/web/server/lib/dev-tunnel/client.js')
+      .then(({ createDevTunnelClient }) => createDevTunnelClient({ logger: log }))
+      .catch((error) => {
+        devTunnelClientPromise = null;
+        throw error;
+      });
+  }
+  return devTunnelClientPromise;
+};
+
+const closeAllDevTunnels = () => {
+  if (!devTunnelClientPromise) return;
+  const pending = devTunnelClientPromise;
+  devTunnelClientPromise = null;
+  pending.then((client) => client.closeAll()).catch(() => {});
+};
+
 const handleInvoke = async (browserWindow, command, args = {}) => {
   switch (command) {
     case 'desktop_start_window_drag':
       return null;
+
+    // Used after an MCP authorization finishes in the system browser: the app
+    // raises itself rather than relying on the browser to hand control back.
+    // A browser will not follow a custom-protocol link without a user gesture,
+    // and the completion page has none.
+    case 'desktop_focus_window': {
+      const target = browserWindow && !browserWindow.isDestroyed()
+        ? browserWindow
+        : (state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : null);
+      if (!target) return false;
+      if (target.isMinimized()) target.restore();
+      target.show();
+      target.focus();
+      app.focus?.({ steal: true });
+      return true;
+    }
 
     case 'desktop_is_window_fullscreen':
       return Boolean(browserWindow?.isFullScreen());
@@ -3647,11 +3842,131 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       return { supported: true, enabled, active };
     }
 
+    // Dev-server tunnels: bind a loopback port here and pipe it to a dev server
+    // on the remote OpenChamber host, so the browser panel loads a real origin
+    // instead of a rewritten page. Deliberately absent from
+    // COMMANDS_SAFE_FOR_REMOTE — a remote page must never open local listeners.
+    case 'desktop_dev_tunnel_open': {
+      const baseUrl = typeof args.baseUrl === 'string' ? args.baseUrl.trim() : '';
+      const port = Number.isFinite(args.port) ? Math.trunc(args.port) : 0;
+      if (!baseUrl) throw new Error('baseUrl is required');
+      if (!(port > 0 && port <= 65535)) throw new Error('A valid port is required');
+
+      const headers = {};
+      const requestHeaders = args.requestHeaders && typeof args.requestHeaders === 'object' ? args.requestHeaders : {};
+      for (const [name, value] of Object.entries(requestHeaders)) {
+        if (typeof value === 'string' && value) headers[name] = value;
+      }
+      if (typeof args.clientToken === 'string' && args.clientToken) {
+        headers.Authorization = `Bearer ${args.clientToken}`;
+      }
+
+      const client = await getDevTunnelClient();
+      const result = await client.open({ baseUrl, port, headers });
+      return { localPort: result.localPort, reused: result.reused, url: `http://127.0.0.1:${result.localPort}/` };
+    }
+
+    case 'desktop_dev_tunnel_close': {
+      const baseUrl = typeof args.baseUrl === 'string' ? args.baseUrl.trim() : '';
+      const port = Number.isFinite(args.port) ? Math.trunc(args.port) : 0;
+      if (!baseUrl || !(port > 0)) return { closed: false };
+      const client = await getDevTunnelClient();
+      return { closed: client.close({ baseUrl, port }) };
+    }
+
+    /**
+     * Forces prefers-color-scheme for one previewed page.
+     *
+     * nativeTheme.themeSource is app-wide and would drag OpenChamber's own
+     * appearance along with it, so this goes through the page's own emulation
+     * instead. The debugger session has to stay attached: emulation is part of
+     * that session and resets the moment it detaches.
+     */
+    case 'desktop_browser_set_color_scheme': {
+      const scheme = args.scheme === 'light' || args.scheme === 'dark' ? args.scheme : 'system';
+      const target = resolveBrowserPanelContents(args.webContentsId);
+
+      if (!target.debugger.isAttached()) {
+        try {
+          target.debugger.attach('1.3');
+        } catch {
+          // DevTools owns the only debugger session a page can have.
+          throw new Error('Close DevTools for this page before changing its appearance');
+        }
+      }
+
+      await target.debugger.sendCommand('Emulation.setEmulatedMedia', scheme === 'system'
+        ? { features: [] }
+        : { features: [{ name: 'prefers-color-scheme', value: scheme }] });
+
+      if (scheme === 'system') {
+        // Nothing left to emulate; give the session back so DevTools can attach.
+        try { target.debugger.detach(); } catch { /* already gone */ }
+      }
+      return { scheme };
+    }
+
+    /**
+     * Fetches a page's favicon for the tab strip.
+     *
+     * Done here, in the panel's own session, rather than by the renderer: the
+     * icon often sits behind the same login as the page, and letting the app's
+     * own origin request it would both fail on those and quietly send traffic
+     * to third-party hosts from OpenChamber itself. The bytes come back as a
+     * data URL so nothing else has to fetch anything.
+     */
+    case 'desktop_browser_fetch_favicon': {
+      const target = typeof args.url === 'string' ? args.url.trim() : '';
+      let parsed;
+      try {
+        parsed = new URL(target);
+      } catch {
+        throw new Error('A favicon URL is required');
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('Unsupported favicon URL');
+      }
+
+      const response = await electronNet.fetch(parsed.toString(), {
+        session: session.fromPartition(BROWSER_PANEL_PARTITION),
+      });
+      if (!response.ok) throw new Error(`Favicon request failed (${response.status})`);
+
+      const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!FAVICON_MIME_TYPES.has(mime)) throw new Error('Favicon is not an image');
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      // A tab icon is a few kilobytes; anything of a different order is not one,
+      // and is not worth holding in memory for every tab.
+      if (buffer.length === 0 || buffer.length > MAX_FAVICON_BYTES) {
+        throw new Error('Favicon is not a usable size');
+      }
+      return { dataUrl: `data:${mime};base64,${buffer.toString('base64')}` };
+    }
+
+    // Scoped to the browser panel's own partition, so clearing it can never
+    // touch OpenChamber's session or any other window's storage.
+    case 'desktop_browser_clear_data': {
+      // Exact match, not a prefix: a prefix would also accept a partition that
+      // merely starts with this name, which is not what the comment above
+      // promises and would quietly stop being true if one were ever added.
+      const partition = typeof args.partition === 'string' ? args.partition.trim() : '';
+      if (partition !== BROWSER_PANEL_PARTITION) {
+        throw new Error('Unsupported browser partition');
+      }
+      const storages = [];
+      if (args.cookies === true) storages.push('cookies');
+      if (args.cache === true) storages.push('localstorage', 'indexdb', 'websql', 'serviceworkers', 'cachestorage');
+      if (storages.length === 0) return { cleared: false };
+
+      const browserSession = session.fromPartition(partition);
+      await browserSession.clearStorageData({ storages });
+      if (args.cache === true) await browserSession.clearCache();
+      return { cleared: true };
+    }
+
     case 'desktop_browser_capture_page': {
-      const wcId = Number.isFinite(args.webContentsId) ? Math.trunc(args.webContentsId) : null;
-      if (wcId === null || wcId < 0) throw new Error('webContentsId is required');
-      const wc = webContents.fromId(wcId);
-      if (!wc || wc.isDestroyed()) throw new Error('WebContents not found');
+      const wc = resolveBrowserPanelContents(args.webContentsId);
       const image = await wc.capturePage();
       const buffer = image.toJPEG(82);
       return {
@@ -4007,8 +4322,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         localAvailable: Boolean(state.sidecarUrl || state.localOrigin),
       });
       state.initScript = buildInitScript(state.localOrigin, state.bootOutcome, state.apiBaseUrl, state.clientToken, state.requestHeaders || {});
-      syncInitScriptToWindows(state.initScript);
-      log.info('[electron] hosts config updated, recomputed bootOutcome', state.bootOutcome);
+      syncMainWindowInitScript(state.initScript);
       return null;
     }
 
@@ -4059,26 +4373,6 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         });
       }
       return null;
-    }
-
-    case 'desktop_set_vibrancy': {
-      // Vibrancy + transparent backing are window-creation options, so the
-      // change only takes effect on a fresh launch. Persist the preference,
-      // then relaunch the app.
-      const enabled = args.enabled === true;
-      await mutateSettingsRoot((root) => {
-        root.desktopVibrancy = enabled;
-      });
-      setImmediate(() => {
-        try {
-          prepareForQuit();
-          app.relaunch();
-          app.exit(0);
-        } catch (err) {
-          log.error('[electron] desktop_set_vibrancy relaunch failed', err);
-        }
-      });
-      return { enabled, requiresRestart: true };
     }
 
     case 'desktop_check_for_updates': {
@@ -4329,6 +4623,10 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       }
       return null;
 
+    // Minimize always goes to the taskbar/dock, even with tray background mode
+    // on: hiding the window here would drop the taskbar entry and make the
+    // in-app minimize button behave differently from the native one. Only
+    // closing hands the window to the tray.
     case 'desktop_minimize_current_window':
       if (browserWindow && !browserWindow.isDestroyed()) {
         browserWindow.minimize();
@@ -4454,6 +4752,7 @@ const buildMacMenu = () => {
         { type: 'separator' },
         { role: 'cut' },
         { label: 'Copy', accelerator: 'Cmd+C', click: () => handleCopyAction() },
+        { label: 'Add Selection to Chat', accelerator: 'Cmd+L', registerAccelerator: false, click: () => dispatchAddSelectionToChat() },
         { role: 'paste' },
         { role: 'selectAll' },
       ],
@@ -4472,7 +4771,7 @@ const buildMacMenu = () => {
         { label: 'Dark Theme', click: () => dispatchAction('theme-dark') },
         { label: 'System Theme', click: () => dispatchAction('theme-system') },
         { type: 'separator' },
-        { label: 'Toggle Session Sidebar', accelerator: 'Cmd+L', click: () => dispatchAction('toggle-sidebar') },
+        { label: 'Toggle Session Sidebar', accelerator: 'Cmd+Alt+L', click: () => dispatchAction('toggle-sidebar') },
         { label: 'Toggle Memory Debug', accelerator: 'Cmd+Shift+D', click: () => dispatchAction('toggle-memory-debug') },
         { type: 'separator' },
         { role: 'togglefullscreen' },
@@ -4551,6 +4850,7 @@ const buildAutoHiddenMenu = () => {
         { type: 'separator' },
         { role: 'cut' },
         { label: 'Copy', accelerator: 'Ctrl+C', click: () => handleCopyAction() },
+        { label: 'Add Selection to Chat', accelerator: 'Ctrl+L', registerAccelerator: false, click: () => dispatchAddSelectionToChat() },
         { role: 'paste' },
         { role: 'selectAll' },
       ],
@@ -4573,7 +4873,7 @@ const buildAutoHiddenMenu = () => {
         { label: 'Dark Theme', click: () => dispatchAction('theme-dark') },
         { label: 'System Theme', click: () => dispatchAction('theme-system') },
         { type: 'separator' },
-        { label: 'Toggle Session Sidebar', accelerator: 'Ctrl+L', click: () => dispatchAction('toggle-sidebar') },
+        { label: 'Toggle Session Sidebar', accelerator: 'Ctrl+Alt+L', click: () => dispatchAction('toggle-sidebar') },
         { label: 'Toggle Memory Debug', accelerator: 'Ctrl+Shift+D', click: () => dispatchAction('toggle-memory-debug') },
         { type: 'separator' },
         { role: 'togglefullscreen' },
@@ -4666,6 +4966,9 @@ const isLocalSender = (webContents) => {
     if (!raw) return false;
     const url = new URL(raw);
     if (url.protocol === `${UI_PROTOCOL}:` && url.hostname === 'app') return true;
+    // Electron dev renders from Vite while the local API is served on a
+    // separate port. This exact loopback HMR origin is trusted only in dev.
+    if (isDev && url.origin === `http://127.0.0.1:${process.env.OPENCHAMBER_HMR_UI_PORT || '5173'}`) return true;
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
     if (state.localOrigin) {
       try {
@@ -5002,6 +5305,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   state.quitRequested = true;
+  // Loopback listeners would otherwise outlive the window that needed them.
+  closeAllDevTunnels();
 
   if (state.installingUpdate) {
     return;
@@ -5061,6 +5366,7 @@ app.on('activate', async () => {
 });
 
 app.whenReady().then(async () => {
+  recordElectronStartupPerformance('electron.app.ready');
   const loginItemSettings = readLoginItemSettings();
   const isBackgroundStart = shouldStartInBackground(loginItemSettings);
   log.info('[electron] app starting', {
@@ -5074,6 +5380,7 @@ app.whenReady().then(async () => {
   });
   nativeTheme.themeSource = readThemeSource();
   registerPackagedUiProtocol();
+  hardenBrowserPanelSession();
   setupAutoUpdater();
 
   if (process.platform === 'darwin') {

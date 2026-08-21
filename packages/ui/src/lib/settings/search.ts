@@ -1,4 +1,5 @@
 import type { I18nKey } from '@/lib/i18n/store';
+import { useUIStore } from '@/stores/useUIStore';
 import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
 import { getSettingsPageMeta } from './metadata';
 
@@ -26,6 +27,8 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
   isWindows: boolean;
   // Linux desktop shell — for controls that only render on linux.
   isLinux: boolean;
+  // Windows ARM64 — temporary workaround gate (see opencode#19130).
+  isWindowsArm64: boolean;
 }
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
@@ -62,14 +65,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.openchamber.visual.field.darkTheme',
     keywords: ['theme', 'color', 'dark mode'],
     isAvailable: (ctx) => !ctx.isVSCode,
-  },
-  {
-    id: 'appearance.window-transparency',
-    page: 'appearance',
-    titleKey: 'settings.openchamber.visual.field.macVibrancy',
-    descriptionKey: 'settings.openchamber.visual.field.macVibrancyHint',
-    keywords: ['transparent', 'transparency', 'vibrancy', 'blur', 'macos', 'opaque'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
   },
   {
     id: 'appearance.dock-badge',
@@ -146,6 +141,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['input', 'home bar', 'offset'],
     // Only the mobile composer applies this offset (ChatInput gates on isMobile).
     isAvailable: (ctx) => ctx.isMobile,
+  },
+  {
+    id: 'appearance.auto-save-enabled',
+    page: 'general',
+    titleKey: 'settings.openchamber.visual.field.autoSaveEnabled',
+    descriptionKey: 'settings.openchamber.visual.field.autoSaveEnabledInfo',
+    keywords: ['editor', 'autosave', 'auto-save', 'files', 'save'],
   },
   {
     id: 'appearance.expanded-editor-toolbar',
@@ -370,6 +372,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['small model', 'utility', 'summary', 'recap', 'cheap', 'override'],
   },
   {
+    id: 'sessions.walkthrough-model',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.walkthroughModel.title',
+    descriptionKey: 'settings.openchamber.defaults.walkthroughModel.description',
+    keywords: ['walkthrough', 'diff', 'review', 'changes', 'structured output', 'model', 'override'],
+  },
+  {
     id: 'sessions.auto-cleanup',
     page: 'sessions',
     titleKey: 'settings.openchamber.sessionRetention.field.enableAutoCleanup',
@@ -402,6 +411,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.openchamber.desktopNetwork.field.windowControlsPosition',
     descriptionKey: 'settings.openchamber.desktopNetwork.field.windowControlsPositionDescription',
     keywords: ['desktop', 'window', 'controls', 'minimize', 'maximize', 'close', 'titlebar', 'linux', 'windows'],
+    isAvailable: (ctx) => ctx.isDesktop && (ctx.isWindows || !ctx.isMac),
+  },
+  {
+    id: 'sessions.desktop-window-controls-style',
+    page: 'appearance',
+    titleKey: 'settings.openchamber.desktopNetwork.field.windowControlsStyle',
+    keywords: ['desktop', 'window', 'controls', 'style', 'traffic', 'lights', 'classic', 'macos', 'titlebar'],
     isAvailable: (ctx) => ctx.isDesktop && (ctx.isWindows || !ctx.isMac),
   },
   {
@@ -456,15 +472,33 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'general',
     titleKey: 'settings.openchamber.opencodeCli.field.showUpdateNotifications',
     keywords: ['opencode', 'cli', 'updates'],
-    isAvailable: (ctx) => !ctx.isVSCode,
+    isAvailable: (ctx) => !ctx.isVSCode && !ctx.isWindowsArm64,
   },
   {
     id: 'sessions.agent-control-tool',
     page: 'general',
-    titleKey: 'settings.openchamber.opencodeCli.field.agentControlTool',
-    descriptionKey: 'settings.openchamber.opencodeCli.field.agentControlToolInfo',
+    titleKey: 'settings.openchamber.tools.field.agentControlTool',
+    descriptionKey: 'settings.openchamber.tools.field.agentControlToolInfo',
     keywords: ['agent', 'tool', 'orchestration', 'openchamber', 'sessions', 'schedule', 'control'],
     isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'sessions.agent-web-tool',
+    page: 'general',
+    titleKey: 'settings.openchamber.tools.field.agentWebTool',
+    descriptionKey: 'settings.openchamber.tools.field.agentWebToolInfo',
+    keywords: ['agent', 'tool', 'web', 'browser', 'page', 'preview', 'openchamber'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'sessions.agent-memory-tool',
+    page: 'general',
+    titleKey: 'settings.openchamber.tools.field.agentMemoryTool',
+    descriptionKey: 'settings.openchamber.tools.field.agentMemoryToolInfo',
+    keywords: ['agent', 'tool', 'memory', 'remember', 'recall', 'preferences', 'openchamber'],
+    // Unreleased: searching for a setting that is not rendered would take the
+    // user to an empty spot on the page.
+    isAvailable: (ctx) => !ctx.isVSCode && useUIStore.getState().agentMemoryFeatureAvailable,
   },
   {
     id: 'git.github-account',
@@ -498,11 +532,11 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['ignored', 'files', 'gitignore'],
   },
   {
-    id: 'usage.header-menu',
+    id: 'usage.work-status-panel',
     page: 'usage',
-    titleKey: 'settings.usage.page.options.showInHeader',
-    descriptionKey: 'settings.usage.page.options.showInHeaderTooltip',
-    keywords: ['quota', 'header', 'dropdown'],
+    titleKey: 'settings.usage.page.options.showInWorkStatus',
+    descriptionKey: 'settings.usage.page.options.showInWorkStatusTooltip',
+    keywords: ['quota', 'work', 'status', 'panel'],
   },
   {
     id: 'usage.model-quotas',
@@ -739,6 +773,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['add provider', 'connect provider', 'credentials'],
   },
   {
+    id: 'providers.custom',
+    page: 'providers',
+    titleKey: 'settings.providers.page.custom.title',
+    descriptionKey: 'settings.providers.page.custom.description',
+    keywords: ['other', 'custom', 'openai-compatible', 'base url', 'api key'],
+  },
+  {
     id: 'providers.auth',
     page: 'providers',
     titleKey: 'settings.providers.page.auth.title',
@@ -902,6 +943,34 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.notifications.page.push.title',
     keywords: ['background', 'push'],
     isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
+  },
+
+  {
+    id: 'integrations.third-party',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.title',
+    keywords: ['plugin', 'provider', 'oauth', 'install', 'update', 'remove'],
+  },
+  {
+    id: 'integrations.third-party.opencode-claude',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.opencodeClaude.name',
+    descriptionKey: 'settings.integrations.thirdParty.opencodeClaude.description',
+    keywords: ['claude', 'anthropic', 'claude code', 'pro', 'max', 'agent sdk', '@openchamber/opencode-claude'],
+  },
+  {
+    id: 'integrations.third-party.opencode-commandcode',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.opencodeCommandcode.name',
+    descriptionKey: 'settings.integrations.thirdParty.opencodeCommandcode.description',
+    keywords: ['command code', 'commandcode', 'laguna', 'poolside', 'gateway', '@openchamber/opencode-commandcode'],
+  },
+  {
+    id: 'integrations.third-party.opencode-cursor-oauth',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.opencodeCursorOauth.name',
+    descriptionKey: 'settings.integrations.thirdParty.opencodeCursorOauth.description',
+    keywords: ['cursor', 'oauth', 'subscription', 'openai compatible', '@openchamber/opencode-cursor'],
   },
 ] as const;
 

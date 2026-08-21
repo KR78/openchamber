@@ -11,6 +11,8 @@ type WorktreeListEntry = {
 
 const listCalls: string[] = [];
 const listResolvers: Array<(value: WorktreeListEntry[]) => void> = [];
+const createPayloads: unknown[] = [];
+const validatePayloads: unknown[] = [];
 const createdWorktree = {
   head: 'abc123',
   name: 'feature',
@@ -80,13 +82,27 @@ mock.module('@/lib/gitApi', () => ({
           listResolvers.push(resolve);
         });
       },
-      create: mock(() => Promise.resolve(createdWorktreeResult)),
+      create: mock((_directory: string, payload: unknown) => {
+        createPayloads.push(payload);
+        return Promise.resolve(createdWorktreeResult);
+      }),
+      validate: mock((_directory: string, payload: unknown) => {
+        validatePayloads.push(payload);
+        return Promise.resolve({ ok: true, errors: [] });
+      }),
       remove: mock(() => Promise.resolve({ success: true })),
     },
   },
 }));
 
-const { createWorktree, getLatestWorktreeMetadata, listProjectWorktrees, worktreeMapsEqual } = await import('./worktreeManager');
+const {
+  createWorktree,
+  getLatestWorktreeMetadata,
+  listProjectWorktrees,
+  partitionWorktreesByRegisteredProject,
+  validateWorktreeCreate,
+  worktreeMapsEqual,
+} = await import('./worktreeManager');
 
 const waitForListCallCount = async (count: number): Promise<void> => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -102,6 +118,8 @@ describe('worktreeManager list invalidation', () => {
   beforeEach(() => {
     listCalls.length = 0;
     listResolvers.length = 0;
+    createPayloads.length = 0;
+    validatePayloads.length = 0;
     bootstrapWatcherCalls.length = 0;
     bootstrapWatcherOptions.length = 0;
     createdWorktreeResult = createdWorktree;
@@ -282,5 +300,140 @@ describe('worktreeMapsEqual', () => {
       ['/repo', [wt('/r/main', 'main'), wt('/r/feat', 'feat'), wt('/r/old', 'new-branch')]],
     ]);
     expect(worktreeMapsEqual(a, b)).toBe(false);
+  });
+});
+
+describe('partitionWorktreesByRegisteredProject', () => {
+  const worktree = (path: string, projectDirectory = '/repo'): WorktreeMetadata => {
+    const label = path.split('/').pop() ?? path;
+    return { path, projectDirectory, branch: label, label };
+  };
+
+  test('assigns shared topology to the primary project and omits configured worktree projects', () => {
+    const projects = [
+      { path: '/repo' },
+      { path: '/worktrees/alpha' },
+      { path: '/worktrees/beta' },
+    ];
+    const topology = new Map<string, WorktreeMetadata[]>([
+      ['/repo', [
+        worktree('/worktrees/alpha'),
+        worktree('/worktrees/beta'),
+        worktree('/worktrees/loose'),
+      ]],
+      ['/worktrees/alpha', [
+        worktree('/repo'),
+        worktree('/worktrees/beta'),
+        worktree('/worktrees/loose'),
+      ]],
+      ['/worktrees/beta', [
+        worktree('/repo'),
+        worktree('/worktrees/alpha'),
+        worktree('/worktrees/loose'),
+      ]],
+    ]);
+
+    const result = partitionWorktreesByRegisteredProject(projects, topology);
+
+    expect([...result.keys()]).toEqual(['/repo']);
+    expect(result.get('/repo')?.map((entry) => entry.path)).toEqual(['/worktrees/loose']);
+  });
+
+  test('uses the first configured checkout when the primary project is not configured', () => {
+    const projects = [
+      { path: '/worktrees/alpha' },
+      { path: '/worktrees/beta' },
+    ];
+    const topology = new Map<string, WorktreeMetadata[]>([
+      ['/worktrees/beta', [
+        worktree('/repo'),
+        worktree('/worktrees/alpha'),
+        worktree('/worktrees/loose'),
+      ]],
+      ['/worktrees/alpha', [
+        worktree('/repo'),
+        worktree('/worktrees/beta'),
+        worktree('/worktrees/loose'),
+      ]],
+    ]);
+
+    const result = partitionWorktreesByRegisteredProject(projects, topology);
+
+    expect([...result.keys()]).toEqual(['/worktrees/alpha']);
+    expect(result.get('/worktrees/alpha')?.map((entry) => entry.path)).toEqual([
+      '/repo',
+      '/worktrees/loose',
+    ]);
+  });
+
+  test('keeps primary ownership when topology comes from another configured checkout', () => {
+    const projects = [
+      { path: '/repo' },
+      { path: '/worktrees/alpha' },
+    ];
+    const topology = new Map<string, WorktreeMetadata[]>([
+      ['/worktrees/alpha', [
+        worktree('/repo'),
+        worktree('/worktrees/loose'),
+      ]],
+    ]);
+
+    const result = partitionWorktreesByRegisteredProject(projects, topology);
+
+    expect([...result.keys()]).toEqual(['/repo']);
+    expect(result.get('/repo')?.map((entry) => entry.path)).toEqual(['/worktrees/loose']);
+  });
+});
+
+describe('worktreeManager fork remote payload wiring', () => {
+  beforeEach(() => {
+    listCalls.length = 0;
+    listResolvers.length = 0;
+    createPayloads.length = 0;
+    validatePayloads.length = 0;
+    bootstrapWatcherCalls.length = 0;
+    bootstrapWatcherOptions.length = 0;
+    createdWorktreeResult = createdWorktree;
+    sessionState.availableWorktreesByProject = new Map();
+    sessionState.availableWorktrees = [];
+    sessionState.worktreeMetadata = new Map();
+    attachmentState.attachments = new Map();
+  });
+
+  test('validate and create forward ensureRemoteName/Url for a fork head', async () => {
+    const project = { id: 'project-1', path: '/repo' };
+    const args = {
+      mode: 'existing' as const,
+      branchName: 'feature/login',
+      worktreeName: 'pr-42',
+      existingBranch: 'remotes/pr-alice/feature/login',
+      setUpstream: true as const,
+      upstreamRemote: 'pr-alice',
+      upstreamBranch: 'feature/login',
+      ensureRemoteName: 'pr-alice',
+      ensureRemoteUrl: 'https://github.com/alice/openchamber.git',
+    };
+
+    const validation = await validateWorktreeCreate(project, args);
+    expect(validation.ok).toBe(true);
+    expect(validatePayloads).toHaveLength(1);
+    const validated = validatePayloads[0] as Record<string, unknown>;
+    expect(validated.mode).toBe('existing');
+    expect(validated.existingBranch).toBe('remotes/pr-alice/feature/login');
+    expect(validated.ensureRemoteName).toBe('pr-alice');
+    expect(validated.ensureRemoteUrl).toBe('https://github.com/alice/openchamber.git');
+    expect('pullRequest' in validated).toBe(false);
+
+    await createWorktree(project, {
+      ...args,
+      returnAfterDirectoryCreated: true,
+    });
+    expect(createPayloads).toHaveLength(1);
+    const created = createPayloads[0] as Record<string, unknown>;
+    expect(created.existingBranch).toBe('remotes/pr-alice/feature/login');
+    expect(created.ensureRemoteName).toBe('pr-alice');
+    expect(created.ensureRemoteUrl).toBe('https://github.com/alice/openchamber.git');
+    expect(created.setUpstream).toBe(true);
+    expect('pullRequest' in created).toBe(false);
   });
 });

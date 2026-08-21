@@ -11,6 +11,7 @@ import {
   useSessionMessageLoader,
   useSyncDirectory,
   useSyncSDK,
+  resyncBlockingRequestsForDirectory,
 } from "./sync-context"
 import { dropSessionCaches, getProtectedSessionCacheIds } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
@@ -122,6 +123,23 @@ export function useSync() {
   const childStores = useChildStoreManager()
   const messageLoader = useSessionMessageLoader()
   const runtimeKey = getRuntimeKey()
+
+  const recoverPendingQuestions = useCallback(
+    async (sessionID: string, directoryOverride?: string): Promise<boolean> => {
+      const targetDirectory = directoryOverride || directory
+      if (!sessionID || !targetDirectory || getRuntimeKey() !== runtimeKey) return false
+      const targetStore = childStores.ensureChild(targetDirectory, {
+        priority: "selected",
+        reason: "selected-session",
+      })
+      await resyncBlockingRequestsForDirectory(targetDirectory, targetStore, [sessionID], {
+        includePermissions: false,
+      })
+      if (getRuntimeKey() !== runtimeKey) return false
+      return (targetStore.getState().question[sessionID]?.length ?? 0) > 0
+    },
+    [childStores, directory, runtimeKey],
+  )
 
   const keyFor = useCallback(
     (sessionID: string, directoryOverride = directory) => `${runtimeKey}\n${directoryOverride}\n${sessionID}`,
@@ -313,12 +331,19 @@ export function useSync() {
 
   // Load more (pagination)
   const loadMore = useCallback(
-    async (sessionID: string, directoryOverride?: string) => {
-      const targetDirectory = directoryOverride || directory
+    async (sessionID: string, targetDirectory: string) => {
       touch(sessionID, targetDirectory)
       await messageLoader.loadOlder({ directory: targetDirectory, sessionID })
     },
-    [directory, messageLoader, touch],
+    [messageLoader, touch],
+  )
+
+  const loadCompleteHistory = useCallback(
+    async (sessionID: string, targetDirectory: string) => {
+      touch(sessionID, targetDirectory)
+      await messageLoader.loadComplete({ directory: targetDirectory, sessionID })
+    },
+    [messageLoader, touch],
   )
 
   const prefetchSession = useCallback(
@@ -397,15 +422,17 @@ export function useSync() {
       syncSession,
       prefetchSession,
       loadMore,
+      loadCompleteHistory,
       hasMore,
       isLoading,
       isComplete,
+      recoverPendingQuestions,
       optimistic: {
         add: optimisticAdd,
         remove: optimisticRemove,
         confirm: optimisticConfirm,
       },
     }),
-    [syncSession, prefetchSession, loadMore, hasMore, isLoading, isComplete, optimisticAdd, optimisticRemove, optimisticConfirm],
+    [syncSession, prefetchSession, loadMore, loadCompleteHistory, hasMore, isLoading, isComplete, recoverPendingQuestions, optimisticAdd, optimisticRemove, optimisticConfirm],
   )
 }

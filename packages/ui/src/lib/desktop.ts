@@ -1,4 +1,4 @@
-import type { ProjectEntry, TerminalShell } from '@/lib/api/types';
+import type { ProjectEntry, RuntimeAPIs, TerminalShell } from '@/lib/api/types';
 import { getInjectedBootOutcome } from '@/lib/desktopBoot';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -41,6 +41,8 @@ export type SkillCatalogConfig = {
 export type DesktopWindowControlsPosition = 'left' | 'right';
 export type DesktopWindowControlsSide = 'left' | 'right';
 export type DesktopWindowControlAction = 'close' | 'minimize' | 'maximize';
+// No fixed-width constant: control width depends on the style (classic vs traffic-lights).
+export type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
 
 export type DesktopSettings = {
   themeId?: string;
@@ -66,6 +68,10 @@ export type DesktopSettings = {
   securityScopedBookmarks?: string[];
   pinnedDirectories?: string[];
   showReasoningTraces?: boolean;
+  /** Whether the in-chat work-status panel may render. */
+  workStatusPanelEnabled?: boolean;
+  /** Work-status panel sections the user switched off. */
+  workStatusHiddenSections?: string[];
   collapsibleThinkingBlocks?: boolean;
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
@@ -91,10 +97,7 @@ export type DesktopSettings = {
   summaryLength?: number;
   maxLastMessageLength?: number;
 
-  usageAutoRefresh?: boolean;
-  usageRefreshIntervalMs?: number;
   usageDisplayMode?: 'usage' | 'remaining';
-  usageShowPredValues?: boolean;
   usageDropdownProviders?: string[];
   usageSelectedModels?: Record<string, string[]>;  // Map of providerId -> selected model names
   usageCollapsedFamilies?: Record<string, string[]>;  // Map of providerId -> collapsed family IDs (UsagePage)
@@ -105,6 +108,7 @@ export type DesktopSettings = {
     renamedGroups?: Record<string, string>;  // groupId -> custom label
   }>;  // Per-provider custom model groups configuration
   autoDeleteEnabled?: boolean;
+  autoSaveEnabled?: boolean;
   autoDeleteAfterDays?: number;
   sessionRetentionAction?: 'archive' | 'delete';
   tunnelProvider?: string;
@@ -128,6 +132,10 @@ export type DesktopSettings = {
   sessionGoalDefaultBudgetEnabled?: boolean;
   sessionGoalDefaultBudget?: number;
   smallModelOverride?: string; // format: "provider/model"
+  // The walkthrough needs structured output and a roomy context, which the
+  // small model is often deliberately not chosen for. Unset means "use the
+  // small model"; a value replaces it for this feature only.
+  walkthroughModelOverride?: string; // format: "provider/model"
   defaultGitIdentityId?: string; // ''/undefined = unset, 'global' or profile id
   openInAppId?: string;
   autoCreateWorktree?: boolean;
@@ -142,9 +150,13 @@ export type DesktopSettings = {
   pwaOrientation?: 'system' | 'portrait' | 'landscape';
   mobileKeyboardMode?: MobileKeyboardMode;
   desktopWindowControlsPosition?: DesktopWindowControlsPosition;
+  desktopWindowControlsStyle?: DesktopWindowControlsStyle;
   inputSpellcheckEnabled?: boolean;
   showOpenCodeUpdateNotifications?: boolean;
   agentControlToolEnabled?: boolean;
+  agentWebToolEnabled?: boolean;
+  agentMemoryToolEnabled?: boolean;
+  agentMemoryFeatureAvailable?: boolean;
   optimizeSystemPrompt?: boolean;
   openCodeUpdateToastDismissedVersion?: string;
   showToolFileIcons?: boolean;
@@ -229,8 +241,6 @@ type DesktopBridgeGlobal = {
 type ElectronRuntimeGlobal = {
   runtime?: string;
   arch?: string;
-  macVibrancy?: boolean;
-  macVibrancySupported?: boolean;
   trayEnabled?: boolean;
 };
 
@@ -246,14 +256,11 @@ const getDesktopBridge = (): DesktopBridgeGlobal | null => {
 
 export const isElectronShell = (): boolean => getElectronRuntime()?.runtime === 'electron';
 
-export const getElectronPlatform = (): string | null => {
+const getElectronPlatform = (): string | null => {
   if (typeof window === 'undefined') return null;
   const platform = (window as unknown as { __OPENCHAMBER_PLATFORM__?: string }).__OPENCHAMBER_PLATFORM__;
   return typeof platform === 'string' ? platform : null;
 };
-
-/** Width of the three in-app window control buttons when placed on the left (3 × w-8). */
-export const DESKTOP_WINDOW_CONTROLS_WIDTH_PX = 96;
 
 /** Default side for in-app window controls (Windows-style, right). */
 export const DEFAULT_DESKTOP_WINDOW_CONTROLS_POSITION: DesktopWindowControlsPosition = 'right';
@@ -526,6 +533,27 @@ export const isDesktopShell = (): boolean => {
   return isElectronShell();
 };
 
+/**
+ * Raises the desktop window.
+ *
+ * Used when work finishes somewhere the app cannot be reached from — an MCP
+ * authorization completing in the system browser, for instance. Browsers will
+ * not follow a custom-protocol link back without a user gesture, so the app
+ * brings itself forward instead of asking the page to do it.
+ */
+export const focusDesktopWindow = async (): Promise<boolean> => {
+  if (!isDesktopShell()) return false;
+  try {
+    return Boolean(await invokeDesktop('desktop_focus_window'));
+  } catch {
+    return false;
+  }
+};
+
+export const canRequestNativeDirectoryAccess = (): boolean => (
+  isDesktopShell() && hasDesktopInvoke() && isDesktopLocalOriginActive()
+);
+
 export const startDesktopWindowDrag = async (): Promise<boolean> => {
   if (!isDesktopShell()) {
     return false;
@@ -557,6 +585,15 @@ export const isWebRuntime = (): boolean => {
   return !isVSCodeRuntime();
 };
 
+/**
+ * Electron reuses the web RuntimeAPIs implementation, so distinguish a browser
+ * client from an Electron renderer with both the runtime descriptor and shell.
+ */
+export const isBrowserClientRuntime = (
+  platform: RuntimeAPIs['runtime']['platform'],
+  desktopShell = isDesktopShell(),
+): boolean => platform === 'web' && !desktopShell;
+
 export const getDesktopHomeDirectory = async (): Promise<string | null> => {
   if (typeof window !== 'undefined') {
     const embedded = window.__OPENCHAMBER_HOME__;
@@ -572,12 +609,13 @@ export const requestDirectoryAccess = async (
   directoryPath: string
 ): Promise<{ success: boolean; path?: string; projectId?: string; error?: string }> => {
   // Desktop shell on local instance: use native folder picker.
-  if (hasDesktopInvoke() && isDesktopLocalOriginActive()) {
+  if (canRequestNativeDirectoryAccess()) {
     try {
       const selected = await getDesktopBridge()?.openDialog?.({
         directory: true,
         multiple: false,
         title: 'Select Working Directory',
+        ...(directoryPath ? { defaultPath: directoryPath } : {}),
       });
       if (!selected || typeof selected !== 'string') {
         return { success: false, error: 'Directory selection cancelled' };
@@ -589,7 +627,7 @@ export const requestDirectoryAccess = async (
     }
   }
 
-  return { success: true, path: directoryPath };
+  return { success: false, error: 'Native directory picker not available' };
 };
 
 const isDesktopFileGrantResult = (

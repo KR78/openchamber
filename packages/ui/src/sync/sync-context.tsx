@@ -14,6 +14,7 @@ import {
   ChildStoreManager,
   markDirectorySessionPartChanged,
   subscribeDirectoryPermission,
+  subscribeDirectoryQuestions,
   subscribeDirectorySessionMessages,
   type DirectoryBootstrapContext,
   type DirectoryBootstrapReason,
@@ -31,15 +32,21 @@ import { bootstrapGlobal, bootstrapDirectory } from "./bootstrap"
 import { retry } from "./retry"
 import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
 import { countSyncPerformance } from "./performance-diagnostics"
+import { runBackgroundNetworkTask } from "@/lib/background-network"
 import { setActionRefs } from "./session-actions"
 import { setSyncRefs, getAllSyncSessions } from "./sync-refs"
+import { useSessionUIStore } from "./session-ui-store"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { applySessionEventToGlobalSessions } from "./session-event-router"
 import { syncDebug } from "./debug"
 import { getReconnectCandidateSessionIds, mergeBootstrapSessions } from "./reconnect-recovery"
+import { messagesBefore } from "./message-ordering"
 import { opencodeClient } from "@/lib/opencode/client"
 import { usePermissionStore } from "@/stores/permissionStore"
-import { processVSCodePermissionAutoAccept } from "./vscode-permission-auto-accept"
+import {
+  processVSCodePermissionAutoAccept,
+  processVSCodeReconciledPermissionAutoAccept,
+} from "./vscode-permission-auto-accept"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useTodosPersistStore } from "@/stores/useTodosPersistStore"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
@@ -53,6 +60,7 @@ import type { QuestionRequest } from "@/types/question"
 import {
   getSessionMaterializationRequestKey,
   getSessionMaterializationStatus,
+  getStaleRunningToolMessageID,
   isSessionMaterializationStillNeeded,
   type SessionMaterializationRequest,
 } from "./materialization"
@@ -61,6 +69,7 @@ import { getPermissionToastKey, showPermissionNeededToast } from "./permission-t
 import { getRuntimeLiveStatusSeed, LIVE_STATUS_TTL_MS } from "./runtime-live-memory"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
+import { isFilesystemError } from "@/lib/api/files-errors"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type UserMessageHistorySnapshot } from "./user-message-history"
@@ -241,6 +250,16 @@ const ACTIVE_SESSION_STATUS_POLL_INTERVAL_MS = 5_000
 const ACTIVE_SESSION_STALE_EVENT_MS = 20_000
 const ACTIVE_SESSION_FULL_RESYNC_COOLDOWN_MS = 15_000
 const CHILD_SESSION_DISCOVERY_INTERVAL_MS = 15_000
+
+// Active-session watchdog network calls run under the shared
+// background-network gate (see lib/background-network.ts). The watchdog walks
+// every initialized child store each tick and fires a status poll plus a
+// child-session discovery list per directory with active candidates — on
+// startup with many cache-hydrated directories that is dozens of simultaneous
+// requests, which would otherwise queue interactive traffic (opening a
+// session) behind them on the browser's ~6 sockets per origin. Later ticks
+// still cover every directory via the per-directory timestamps.
+
 const requestSignature = (items: Array<{ id: string }> | undefined): string => {
   if (!items || items.length === 0) return ""
   return items
@@ -284,7 +303,11 @@ function enqueueSessionMaterialization(
   const runtimeKey = getRuntimeKey()
   const k = getSessionMaterializationRequestKey(runtimeKey, directory, sessionID)
   const existing = pendingSessionMaterializations.get(k)
-  if (existing && Date.now() - existing.enqueuedAt < SESSION_MATERIALIZATION_COOLDOWN_MS) return
+  if (existing && Date.now() - existing.enqueuedAt < SESSION_MATERIALIZATION_COOLDOWN_MS) {
+    const settlementMustFollowEarlierRecovery = request.reason === "settled-running-tool"
+      && existing.request.reason !== "settled-running-tool"
+    if (!settlementMustFollowEarlierRecovery) return
+  }
 
   const pending = { runtimeKey, sessionID, directory, enqueuedAt: Date.now(), request }
   pendingSessionMaterializations.set(k, pending)
@@ -608,6 +631,19 @@ async function resyncDirectorySessionStatuses(
   applySessionStatusSnapshot(store, nextStatuses, candidateSessionIds, mode)
   if (mode === "authoritative") {
     applyGlobalSessionStatusSnapshot(directory, nextStatuses, candidateSessionIds)
+    // An authoritative snapshot that settles sessions previously observed
+    // busy/retry can orphan running tool parts (managed process died
+    // mid-turn, #2577): finalize them now. The snapshot write above already
+    // lowered their status to explicit idle, which is the gate the helper
+    // requires — a session the snapshot reports busy stays untouched.
+    for (const sessionId of candidateSessionIds) {
+      const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
+      if (interrupted) {
+        store.setState((state) => ({
+          part: { ...state.part, [interrupted.messageID]: interrupted.parts },
+        }))
+      }
+    }
   }
   return nextStatuses
 }
@@ -663,7 +699,7 @@ const dispatchVSCodeRuntimeNotificationEvent = (directory: string, payload: Even
   }))
 }
 
-const createEventRoutingIndex = (): EventRoutingIndex => ({
+export const createEventRoutingIndex = (): EventRoutingIndex => ({
   sessionDirectoryById: new Map(),
   messageSessionById: new Map(),
   sessionMessageIdsById: new Map(),
@@ -963,8 +999,12 @@ const childStoreHasMessagePartState = (
   return Object.prototype.hasOwnProperty.call(getDirectoryEventState(store, batch).part, messageID)
 }
 
-const getActiveDirectoryFallback = (childStores: ChildStoreManager): string | null => {
+const getActiveDirectoryFallback = (
+  childStores: ChildStoreManager,
+  sessionID?: string | null,
+): string | null => {
   if (!_activeDirectory || !_activeSession) return null
+  if (sessionID && sessionID !== _activeSession) return null
   return childStores.getChild(_activeDirectory) ? _activeDirectory : null
 }
 
@@ -994,6 +1034,14 @@ const resolveDirectoryFromRoutingIndex = (
     const found = findSessionInChildStores(sessionID, childStores, routingIndex, batch)
     if (found) {
       return found
+    }
+
+    // The global stream does not always include a directory. During a session
+    // transition, its routing index can lag the active session briefly; route
+    // a session-addressed event only when that session is the one being viewed.
+    const activeDirectory = getActiveDirectoryFallback(childStores, sessionID)
+    if (activeDirectory) {
+      return activeDirectory
     }
   }
 
@@ -1131,23 +1179,24 @@ const updateRoutingIndexFromEvent = (
  * recovery paths only; normal session switches rely on primary SSE reducer
  * state for `question.asked` / `permission.asked` events. When
  * `candidateSessionIds` is omitted, every session known to the directory store
- * is treated as a candidate.
+ * is treated as a candidate; when provided, recovery is limited to those IDs.
  */
 export async function resyncBlockingRequestsForDirectory(
   directory: string,
   store: StoreApi<DirectoryStore>,
   candidateSessionIds?: string[],
+  options?: { includePermissions?: boolean },
 ) {
   const before = store.getState()
-  const knownSessionIds = new Set<string>([
+  const candidateIds = new Set<string>(candidateSessionIds ?? [
     ...before.session.map((session) => session.id),
     ...Object.keys(before.message ?? {}),
     ...Object.keys(before.session_status ?? {}),
     ...Object.keys(before.question ?? {}),
     ...Object.keys(before.permission ?? {}),
   ])
-  const candidates = candidateSessionIds ?? Array.from(knownSessionIds)
-  if (candidates.length === 0) return
+  if (candidateIds.size === 0) return
+  const candidates = Array.from(candidateIds)
 
   // Re-fetch pending questions that may have been asked during an SSE gap,
   // reconnect window, or directory materialization gap.
@@ -1157,12 +1206,12 @@ export async function resyncBlockingRequestsForDirectory(
     )
     const pendingQuestions = await opencodeClient.listPendingQuestions({ directories: [directory] })
     const grouped: Record<string, QuestionRequest[]> = {}
-    for (const q of pendingQuestions) {
-      if (!q?.id || !q.sessionID) continue
-      if (!knownSessionIds.has(q.sessionID)) continue
-      const list = grouped[q.sessionID]
-      if (list) list.push(q)
-      else grouped[q.sessionID] = [q]
+    for (const question of pendingQuestions) {
+      if (!question?.id || !question.sessionID) continue
+      if (!candidateIds.has(question.sessionID)) continue
+      const list = grouped[question.sessionID]
+      if (list) list.push(question)
+      else grouped[question.sessionID] = [question]
     }
     for (const sessionId of Object.keys(grouped)) {
       grouped[sessionId].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -1209,6 +1258,8 @@ export async function resyncBlockingRequestsForDirectory(
     // Non-fatal: question resync best-effort
   }
 
+  if (options?.includePermissions === false) return
+
   // Re-fetch pending permissions — same rationale as questions.
   try {
     const beforeSignatures = new Map(
@@ -1218,7 +1269,7 @@ export async function resyncBlockingRequestsForDirectory(
     const grouped: Record<string, PermissionRequest[]> = {}
     for (const permission of pendingPermissions) {
       if (!permission?.id || !permission.sessionID) continue
-      if (!knownSessionIds.has(permission.sessionID)) continue
+      if (!candidateIds.has(permission.sessionID)) continue
       const list = grouped[permission.sessionID]
       if (list) list.push(permission)
       else grouped[permission.sessionID] = [permission]
@@ -1231,7 +1282,7 @@ export async function resyncBlockingRequestsForDirectory(
       const acceptedIdsBySession = new Map<string, Set<string>>()
       await Promise.all(Object.entries(grouped).flatMap(([sessionId, permissions]) =>
         permissions.map(async (permission) => {
-          if (!(await processVSCodePermissionAutoAccept(permission, directory))) return
+          if (!(await processVSCodeReconciledPermissionAutoAccept(permission, directory))) return
           const accepted = acceptedIdsBySession.get(sessionId) ?? new Set<string>()
           accepted.add(permission.id)
           acceptedIdsBySession.set(sessionId, accepted)
@@ -1281,6 +1332,15 @@ export async function resyncBlockingRequestsForDirectory(
   } catch {
     // Non-fatal: permission resync best-effort
   }
+}
+
+export async function resyncBlockingRequestsForActiveDirectory(
+  directory: string,
+  childStores: ChildStoreManager,
+) {
+  const store = childStores.getChild(directory)
+  if (!store) return
+  await resyncBlockingRequestsForDirectory(directory, store)
 }
 
 async function resyncDirectoryAfterReconnect(
@@ -1350,7 +1410,7 @@ async function resyncDirectoryAfterReconnect(
   ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
 }
 
-function handleEvent(
+export function handleEvent(
   rawDirectory: string,
   payload: Event,
   childStores: ChildStoreManager,
@@ -1600,6 +1660,12 @@ function handleEvent(
     case "session.deleted":
       cloneField("session", (value) => [...value])
       cloneField("permission", (value) => ({ ...value }))
+      if (
+        payload.type === "session.deleted"
+        || (payload.type === "session.updated" && Boolean((payload.properties as { info?: Session }).info?.time.archived))
+      ) {
+        cloneField("question", (value) => ({ ...value }))
+      }
       cloneField("todo", (value) => ({ ...value }))
       cloneField("part", (value) => ({ ...value }))
       cloneField("sessionEventRevision", (value) => ({ ...(value ?? {}) }))
@@ -1728,7 +1794,106 @@ function handleEvent(
     }
   }
 
+  if (payload.type === "session.idle" || payload.type === "session.error") {
+    const sessionID = getSessionIdFromPayload(payload) ?? undefined
+    const state = getDirectoryEventState(store, batch)
+    const messageID = sessionID ? getStaleRunningToolMessageID(state, sessionID) : undefined
+    if (sessionID && messageID) {
+      enqueueSessionMaterialization(resolvedDirectory, sessionID, childStores, {
+        reason: "settled-running-tool",
+        messageID,
+      })
+    }
+    // The reducer already wrote the idle/error status into `draft`; mark the
+    // orphaned tools using the batched state and publish through the batch.
+    if (sessionID) {
+      const interrupted = interruptedTurnToolParts(state, sessionID)
+      if (interrupted) {
+        cloneField("part", (value) => ({ ...(value ?? {}) }))
+        ;(draft as DirectoryStore).part[interrupted.messageID] = interrupted.parts
+        if (batch) {
+          batch.states.set(store, draft as DirectoryStore)
+          batch.changedStores.add(store)
+        } else {
+          store.setState({ part: { ...(store.getState().part), [interrupted.messageID]: interrupted.parts } })
+        }
+      }
+    }
+  }
+
   updateRoutingIndexFromEvent(routingIndex, resolvedDirectory, payload)
+}
+
+// ---------------------------------------------------------------------------
+// Interrupted-turn reconciliation
+//
+// A managed OpenCode process can die mid-turn (crash, health-check restart).
+// The persisted turn then never settles: the trailing assistant message has
+// no `time.completed` and its tool parts stay `pending`/`running` forever —
+// the server never finalizes them (anomalyco/opencode#19023). The
+// settle-triggered tail refresh above refetches the same stale records, so
+// the UI would keep running tool timers and "working" styling indefinitely
+// (#2577).
+//
+// OpenCode keeps a turn's session busy while it is genuinely alive —
+// including while waiting for a question/permission reply — so once a
+// session is AUTHORITATIVELY settled (a `session.idle`/`session.error`
+// event, or an authoritative status snapshot that lowers a previously busy
+// session) and the trailing assistant message is still unfinished with
+// active tool parts and no pending question/permission, the turn is
+// definitively interrupted. Finalize the orphaned parts locally as
+// `error`/`Interrupted` with an end time — the same shape OpenCode itself
+// writes for cancelled tools. A later terminal part event or a refresh that
+// carries the true terminal state supersedes the mark; a stale refresh that
+// still reports `running` is rejected by the reducer's and the materializer's
+// final-status preservation.
+export function interruptedTurnToolParts(
+  state: DirectoryStore,
+  sessionID: string,
+  now = Date.now(),
+): { messageID: string; parts: Part[] } | null {
+  if ((state.question?.[sessionID] ?? []).length > 0) return null
+  if ((state.permission?.[sessionID] ?? []).length > 0) return null
+
+  const status = state.session_status?.[sessionID]
+  if (!status || status.type !== "idle") {
+    // Absent status is "unknown", not settled (the reducer maps both
+    // session.idle and session.error to {type:"idle"}): never judge an
+    // interrupted turn without an authoritative settle signal.
+    return null
+  }
+
+  const messageID = getStaleRunningToolMessageID(state, sessionID)
+  if (!messageID) return null
+  const message = (state.message[sessionID] ?? []).find((candidate) => candidate.id === messageID)
+  if (!message) return null
+  if (typeof (message as { time?: { completed?: unknown } }).time?.completed === "number") {
+    // The turn finished; a missed terminal tool event is the tail refresh's
+    // job, not an interruption.
+    return null
+  }
+
+  const current = state.part[messageID]
+  if (!current) return null
+
+  let changed = false
+  const nextParts = current.map((part) => {
+    if (part.type !== "tool") return part
+    const partState = (part as { state?: { status?: unknown; time?: { start?: number } } }).state
+    if (!partState) return part
+    if (partState.status !== "pending" && partState.status !== "running") return part
+    changed = true
+    return {
+      ...part,
+      state: {
+        ...partState,
+        status: "error",
+        error: "Interrupted",
+        time: { ...(partState.time ?? {}), end: now },
+      },
+    } as Part
+  })
+  return changed ? { messageID, parts: nextParts } : null
 }
 
 // ---------------------------------------------------------------------------
@@ -1764,6 +1929,7 @@ export function SyncProvider(props: {
     })
   }
   const messageLoader = messageLoaderRef.current
+  const messageLoaderDisposalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   messageLoader.configure({ sdk: props.sdk, runtimeKey })
   const routingIndexRef = useRef<EventRoutingIndex | null>(null)
   if (!routingIndexRef.current) routingIndexRef.current = createEventRoutingIndex()
@@ -1775,6 +1941,7 @@ export function SyncProvider(props: {
   const lastFullResyncAtByDirectoryRef = useRef(new Map<string, number>())
   const lastChildDiscoveryAtByDirectoryRef = useRef(new Map<string, number>())
   const resyncingDirectoriesRef = useRef(new Set<string>())
+  const blockingRequestResyncingDirectoriesRef = useRef(new Set<string>())
   const statusPollingDirectoriesRef = useRef(new Set<string>())
   const pipelineReconnectRef = useRef<((reason?: string) => void) | null>(null)
   const pipelineHasConnectedRef = useRef(false)
@@ -1807,6 +1974,24 @@ export function SyncProvider(props: {
         resyncing.delete(directory)
       })
   }, [childStores, routingIndex])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const onSystemResume = () => {
+      const directory = currentDirectoryRef.current
+      if (!directory || !childStores.getChild(directory)) return
+
+      const resyncing = blockingRequestResyncingDirectoriesRef.current
+      if (resyncing.has(directory)) return
+      resyncing.add(directory)
+      void resyncBlockingRequestsForActiveDirectory(directory, childStores)
+        .finally(() => resyncing.delete(directory))
+    }
+
+    window.addEventListener("openchamber:system-resume", onSystemResume)
+    return () => window.removeEventListener("openchamber:system-resume", onSystemResume)
+  }, [childStores])
 
   // Configure child store manager
   useEffect(() => {
@@ -1916,7 +2101,31 @@ export function SyncProvider(props: {
         }
 
         const result = await runBootstrap(0)
-        if (result === "failed") throw new Error(`Directory bootstrap failed for ${directory}`)
+        if (result === "failed") {
+          // OpenCode can mask the underlying errno while initializing an
+          // inaccessible workspace. Probe the exact directory through the
+          // owning runtime filesystem API so only an authoritative local
+          // EPERM/EACCES becomes an actionable grant-access failure.
+          const files = getRegisteredRuntimeAPIs()?.files
+          if (files) {
+            try {
+              await files.listDirectory(directory)
+            } catch (error) {
+              if (isFilesystemError(error) && error.reason === "os-permission") throw error
+            }
+          }
+          throw new Error(`Directory bootstrap failed for ${directory}`)
+        }
+
+        // Selecting a session whose directory this client had not indexed yet
+        // routes it through the active directory as a documented guess. This is
+        // the moment that guess can be settled: the owning store now holds the
+        // session, so the authoritative directory is finally readable. Without
+        // this the guess survives, every fetch is addressed to a directory that
+        // does not own the session, and the session never renders.
+        if (result === "complete") {
+          useSessionUIStore.getState().adoptAuthoritativeSessionDirectory()
+        }
       },
       onDispose: (directory) => {
         messageLoader.invalidateDirectory(directory)
@@ -2054,7 +2263,7 @@ export function SyncProvider(props: {
       if (parentSessionIds.length === 0) return
       try {
         const scopedClient = opencodeClient.getScopedSdkClient(directory)
-        const result = await scopedClient.session.list({ directory, limit: 200 })
+        const result: unknown = await runBackgroundNetworkTask(() => scopedClient.session.list({ directory, limit: 200 }))
         const allSessions = ((result as { data?: unknown }).data ?? []) as Session[]
         const state = store.getState()
         const existingIds = new Set(state.session.map((s) => s.id))
@@ -2103,7 +2312,7 @@ export function SyncProvider(props: {
       polling.add(directory)
       try {
         const before = store.getState()
-        const statuses = await resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic")
+        const statuses = await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
         if (!statuses) return
         const needsSnapshot = candidateSessionIds.some((sessionId) => (
           needsSnapshotAfterStatusPoll(before, sessionId, statuses[sessionId])
@@ -2217,6 +2426,12 @@ export function SyncProvider(props: {
       props.sdk,
       childStores,
       () => opencodeClient.getDirectory() || props.directory,
+      (directory, sessionID, messageID) => {
+        enqueueSessionMaterialization(directory, sessionID, childStores, {
+          reason: "settled-running-tool",
+          messageID,
+        })
+      },
     )
     return () => {
       if (getImperativeSessionMessageLoader() === messageLoader) {
@@ -2225,9 +2440,22 @@ export function SyncProvider(props: {
     }
   }, [props.sdk, props.directory, childStores, messageLoader, routingIndex])
 
-  useEffect(() => () => {
-    messageLoader.dispose()
-    childStores.disposeAll()
+  useEffect(() => {
+    if (messageLoaderDisposalTimerRef.current) {
+      clearTimeout(messageLoaderDisposalTimerRef.current)
+      messageLoaderDisposalTimerRef.current = null
+    }
+    messageLoader.activate()
+    return () => {
+      // Strict Mode probes effects with setup → cleanup → setup in one task.
+      // Deferring destruction lets child effects issue their second setup load
+      // before this provider is installed again and cancels the cleanup.
+      messageLoaderDisposalTimerRef.current = setTimeout(() => {
+        messageLoaderDisposalTimerRef.current = null
+        messageLoader.dispose()
+        childStores.disposeAll()
+      }, 0)
+    }
   }, [childStores, messageLoader])
 
   // Subscribe to child store for streaming state derivation
@@ -2380,6 +2608,46 @@ export function useSessionQuestions(sessionID: string, directory?: string) {
   )
 }
 
+/**
+ * Total number of pending questions across the given session scopes. Each
+ * scope names a directory store plus the session IDs to count inside it, so
+ * collapsed subtree rows can roll up pending questions of hidden descendants
+ * from their owning directory stores without bootstrapping them.
+ *
+ * Subscribes through the per-session question sidecar channel, so unrelated
+ * streaming or session activity does not re-render rows.
+ */
+export function useSessionQuestionCount(scopes: readonly { directory: string; sessionIDs: readonly string[] }[]) {
+  const { childStores } = useSyncSystem()
+  const scopedStores = React.useMemo(() => scopes.map((scope) => ({
+    sessionIDs: scope.sessionIDs,
+    store: childStores.ensureChild(scope.directory, { bootstrap: false }),
+  })), [childStores, scopes])
+  React.useEffect(() => {
+    for (const scope of scopes) childStores.pin(scope.directory)
+    return () => {
+      for (const scope of scopes) childStores.unpin(scope.directory)
+    }
+  }, [childStores, scopes])
+  const getSnapshot = React.useCallback(() => {
+    let count = 0
+    for (const { sessionIDs, store } of scopedStores) {
+      const questions = store.getState().question
+      for (const sessionID of sessionIDs) count += questions[sessionID]?.length ?? 0
+    }
+    return count
+  }, [scopedStores])
+  const subscribe = React.useCallback((notify: () => void) => {
+    const unsubscribers = scopedStores.map(({ sessionIDs, store }) => (
+      subscribeDirectoryQuestions(store, sessionIDs, notify)
+    ))
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe()
+    }
+  }, [scopedStores])
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
 /** Get sessions list for a directory */
 export function useSessions(directory?: string) {
   return useDirectorySync(
@@ -2500,26 +2768,6 @@ export function useSyncDirectory() {
 /** Get the child store manager (for advanced operations) */
 export function useChildStoreManager() {
   return useSyncSystem().childStores
-}
-
-export type SessionTextMessage = {
-  id: string
-  role: string | null
-  text: string
-}
-
-const getPartText = (part: Part): string => {
-  if (part?.type !== "text") return ""
-  const text = (part as { text?: unknown }).text
-  return typeof text === "string" ? text : ""
-}
-
-const getConcatenatedTextFromParts = (parts: Part[]): string => {
-  let text = ""
-  for (const part of parts) {
-    text += getPartText(part)
-  }
-  return text
 }
 
 type SessionMessageRecord = { info: Message; parts: Part[] }
@@ -2748,7 +2996,7 @@ function getVisibleMessagesForSession(state: State, sessionID: string, previous?
 
   return {
     sourceMessages,
-    visibleMessages: revertMessageID ? sourceMessages.filter((message) => message.id < revertMessageID) : sourceMessages,
+    visibleMessages: messagesBefore(sourceMessages, revertMessageID),
     revertMessageID,
   }
 }
@@ -2845,19 +3093,6 @@ export function useSessionRenderable(sessionID: string, directory?: string): boo
     [sessionID, store],
   )
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-}
-
-export function useSessionTextMessages(sessionID: string, directory?: string): SessionTextMessage[] {
-  const records = useSessionMessageRecords(sessionID, directory)
-
-  return useMemo(
-    () => records.map((record) => ({
-      id: record.info.id,
-      role: typeof record.info.role === "string" ? record.info.role : null,
-      text: getConcatenatedTextFromParts(record.parts),
-    })),
-    [records],
-  )
 }
 
 export function useUserMessageHistory(sessionID: string, directory?: string): string[] {
@@ -3019,14 +3254,20 @@ export function useSessionMessageRecords(
 // (e.g. multiple ToolParts) request the same session's messages.
 const _ensureMessagesLoading = new Set<string>()
 
-export function useEnsureSessionMessages(sessionID: string, directory?: string) {
+/**
+ * @param enabled Gate for callers that only need a session materialised under
+ * a specific condition — a panel resolving pinned message text, say. Loading a
+ * whole session is not free, so "something is missing" is not on its own a
+ * reason to fetch it.
+ */
+export function useEnsureSessionMessages(sessionID: string, directory?: string, enabled = true) {
   const syncDirectory = useSyncDirectory()
   const resolvedDirectory = directory ?? syncDirectory
   const store = useDirectoryStore(resolvedDirectory)
   const requestGenerationRef = React.useRef(0)
 
   React.useEffect(() => {
-    if (!sessionID) return
+    if (!sessionID || !enabled) return
 
     const state = store.getState()
     // Already loaded into a renderable message/part snapshot — nothing to do.
@@ -3052,7 +3293,7 @@ export function useEnsureSessionMessages(sessionID: string, directory?: string) 
         _ensureMessagesLoading.delete(loadingKey)
       }
     })()
-  }, [sessionID, store, resolvedDirectory])
+  }, [enabled, sessionID, store, resolvedDirectory])
 }
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_PARTS: Part[] = []

@@ -41,7 +41,7 @@ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isVSCodeRuntim
 import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/settings/metadata';
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
-import { getSettingsNavIcon } from '@/components/views/SettingsView';
+import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
 import { McpIcon } from '@/components/icons/McpIcon';
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
@@ -455,7 +455,7 @@ export const CommandPalette: React.FC = () => {
   const handleOpenFile = React.useCallback(
     async (filePath: string) => {
       if (!currentRoot) return;
-      const validation = await validateContextFileOpen(filesApi, filePath);
+      const validation = await validateContextFileOpen(filesApi, filePath, { directory: currentRoot });
       if (!validation.ok) {
         toast.error(getContextFileOpenFailureMessage(validation.reason));
         return;

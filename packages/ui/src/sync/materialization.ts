@@ -1,9 +1,11 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { mergeMessages } from "./optimistic"
 import type { SessionMaterializationReason } from "./event-reducer"
+import { sortMessagesChronologically } from "./message-ordering"
 
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const STREAMING_PART_FIELDS = ["text", "output"] as const
+const ACTIVE_TOOL_STATUSES = new Set(["pending", "running"])
+const FINAL_TOOL_STATUSES = new Set(["completed", "error", "aborted", "failed", "timeout", "cancelled"])
 
 export type MaterializedMessageRecord = {
   info: Message
@@ -65,13 +67,35 @@ export function isSessionMaterializationStillNeeded(
     return !(state.part[request.messageID] ?? []).some((part) => part.id === request.partID)
   }
 
+  if (request.reason === "settled-running-tool") {
+    return getStaleRunningToolMessageID(state, sessionID) === request.messageID
+  }
+
   return true
 }
 
-function sortParts(parts: Part[], skipPartTypes: ReadonlySet<string>) {
+export function getStaleRunningToolMessageID(
+  state: MaterializedState,
+  sessionID: string,
+): string | undefined {
+  const messages = state.message[sessionID] ?? []
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === "user") return undefined
+    if (message.role !== "assistant") continue
+    const hasActiveTool = (state.part[message.id] ?? []).some((part) => {
+      if (part.type !== "tool") return false
+      const status = (part as { state?: { status?: unknown } }).state?.status
+      return typeof status === "string" && ACTIVE_TOOL_STATUSES.has(status)
+    })
+    return hasActiveTool ? message.id : undefined
+  }
+  return undefined
+}
+
+function filterMaterializedParts(parts: Part[], skipPartTypes: ReadonlySet<string>): Part[] {
   return parts
     .filter((part) => !!part?.id && !skipPartTypes.has(part.type))
-    .sort((a, b) => cmp(a.id, b.id))
 }
 
 function haveEquivalentPartSnapshots(left: Part[] | undefined, right: Part[]): boolean {
@@ -134,6 +158,19 @@ function getPartStateTime(part: Part): { start?: number; end?: number } | undefi
 
 function mergeMaterializedPart(existing: Part | undefined, next: Part): Part {
   if (!existing) return next
+
+  if (existing.type === "tool" && next.type === "tool") {
+    const existingStatus = (existing as { state?: { status?: unknown } }).state?.status
+    const nextStatus = (next as { state?: { status?: unknown } }).state?.status
+    if (
+      typeof existingStatus === "string"
+      && FINAL_TOOL_STATUSES.has(existingStatus)
+      && typeof nextStatus === "string"
+      && ACTIVE_TOOL_STATUSES.has(nextStatus)
+    ) {
+      return existing
+    }
+  }
 
   if (getPartEndTime(next) !== undefined) {
     const existingAttachments = getPartStateAttachments(existing)
@@ -214,7 +251,7 @@ function mergeMaterializedParts(
   )
   if (missingLiveParts.length === 0) return mergedParts
 
-  return [...mergedParts, ...missingLiveParts].sort((a, b) => cmp(a.id, b.id))
+  return [...mergedParts, ...missingLiveParts]
 }
 
 export function materializeSessionSnapshots(
@@ -224,10 +261,13 @@ export function materializeSessionSnapshots(
   options: MaterializeSessionSnapshotsOptions = {},
 ): MaterializeSessionSnapshotsResult {
   const skipPartTypes = options.skipPartTypes ?? new Set<string>()
-  const snapshots = records
-    .filter((record) => !!record?.info?.id)
-    .sort((left, right) => cmp(left.info.id, right.info.id))
-  const nextMessages = snapshots.map((record) => record.info)
+  const recordsByMessageID = new Map(
+    records
+      .filter((record) => !!record?.info?.id)
+      .map((record) => [record.info.id, record] as const),
+  )
+  const nextMessages = sortMessagesChronologically([...recordsByMessageID.values()].map((record) => record.info))
+  const snapshots = nextMessages.map((message) => recordsByMessageID.get(message.id)!)
   const existingMessages = state.message[sessionID]
   const currentMessages = existingMessages ?? []
   const messages = mergeMessages(currentMessages, nextMessages)
@@ -245,7 +285,7 @@ export function materializeSessionSnapshots(
     const existing = nextPartState[messageID]
     const nextParts = mergeMaterializedParts(
       existing,
-      sortParts(record.parts ?? [], skipPartTypes),
+      filterMaterializedParts(record.parts ?? [], skipPartTypes),
       skipPartTypes,
       isAssistant,
     )
