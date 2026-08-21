@@ -3144,5 +3144,6 @@ export const dict: Record<I18nKey, string> = {
   'settings.mcp.page.connection.kindCommand': 'Comando',
   'settings.mcp.page.connection.kindLink': 'Link',
   'settings.mcp.page.connection.hintCommand': 'Executa nesta máquina. Cole um comando inteiro e ele será dividido em um argumento por linha.',
-  'settings.mcp.page.connection.hintLink': 'Conecta a um servidor hospedado por outra pessoa. Cole o endereço https dele.',
+  'settings.mcp.page.connection.hintLink': 'Conecta a um servidor hospedado por outra pessoa. Cole o endereço https dele.',    "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
+    "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
 };

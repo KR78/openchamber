@@ -3141,5 +3141,6 @@ export const dict = {
   'settings.mcp.page.connection.kindCommand': 'Befehl',
   'settings.mcp.page.connection.kindLink': 'Link',
   'settings.mcp.page.connection.hintCommand': 'Läuft auf diesem Rechner. Fügen Sie einen ganzen Befehl ein — er wird in ein Argument pro Zeile zerlegt.',
-  'settings.mcp.page.connection.hintLink': 'Verbindet sich mit einem fremd gehosteten Server. Fügen Sie dessen https-Adresse ein.',
+  'settings.mcp.page.connection.hintLink': 'Verbindet sich mit einem fremd gehosteten Server. Fügen Sie dessen https-Adresse ein.',    "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
+    "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
 };

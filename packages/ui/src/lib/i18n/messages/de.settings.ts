@@ -2129,5 +2129,6 @@ export const settingsDict = {
   'settings.openchamber.visual.option.themeMode.light.description': 'Immer helles Erscheinungsbild verwenden',
   'settings.openchamber.visual.option.themeMode.dark.description': 'Immer dunkles Erscheinungsbild verwenden',
   'chat.message.userText.collapseAria': 'Benutzernachricht einklappen',
-  ...thirdPartyIntegrationI18n.de,
+  ...thirdPartyIntegrationI18n.de,    "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
+    "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
 };

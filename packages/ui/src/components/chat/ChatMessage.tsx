@@ -807,9 +807,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             text: messageTextContent.trim(),
             fullText: messageTextContent.trim(),
             role: isUser ? 'user' : 'assistant',
-            createdAt: message.info.createdAt ? new Date(message.info.createdAt).toISOString() : undefined,
+            createdAt: messageCreatedAt ? new Date(messageCreatedAt).toISOString() : undefined,
         });
-    }, [isUser, message.info.id, message.info.createdAt, messageTextContent, sessionId]);
+    }, [isUser, message.info.id, messageCreatedAt, messageTextContent, sessionId]);
 
     const handleRevert = React.useCallback(() => {
         if (!sessionId || !message.info.id) return;

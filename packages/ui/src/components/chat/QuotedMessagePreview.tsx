@@ -47,7 +47,7 @@ export const QuotedMessagePreview = React.memo(({ quotes, onRemove }: QuotedMess
         const left = Math.max(8, Math.min(rect.left, window.innerWidth - 360));
         const top = Math.max(8, rect.top - 8);
         setPopoverPos({ top, left });
-        setExpandedIndex(index);
+        setExpandedIndex(messageId);
     }, []);
 
     const handleClick = React.useCallback((messageId: string) => (e: React.MouseEvent) => {

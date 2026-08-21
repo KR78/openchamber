@@ -3144,5 +3144,6 @@ export const dict: Record<I18nKey, string> = {
   'settings.mcp.page.connection.kindCommand': 'Команда',
   'settings.mcp.page.connection.kindLink': 'Посилання',
   'settings.mcp.page.connection.hintCommand': 'Запускається на цьому комп’ютері. Вставте цілу команду — вона розділиться на один аргумент у рядку.',
-  'settings.mcp.page.connection.hintLink': 'Під’єднується до сервера, який хостить хтось інший. Вставте його https-адресу.',
+  'settings.mcp.page.connection.hintLink': 'Під’єднується до сервера, який хостить хтось інший. Вставте його https-адресу.',    "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
+    "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
 };

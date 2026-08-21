@@ -3143,5 +3143,6 @@ export const dict: Record<I18nKey, string> = {
   'settings.mcp.page.connection.kindCommand': '指令',
   'settings.mcp.page.connection.kindLink': '連結',
   'settings.mcp.page.connection.hintCommand': '在本機執行。貼上完整指令後會依每行一個參數拆分。',
-  'settings.mcp.page.connection.hintLink': '連線到他人代管的伺服器。貼上其 https 位址。',
+  'settings.mcp.page.connection.hintLink': '連線到他人代管的伺服器。貼上其 https 位址。',    "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
+    "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
 };

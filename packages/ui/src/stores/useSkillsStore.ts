@@ -105,11 +105,8 @@ interface RawSkillResponse {
   path: string;
   scope?: SkillScope;
   source?: SkillSource;
-<<<<<<< HEAD
   content?: string;
-=======
   renamable?: boolean;
->>>>>>> v1.19.0
   sources?: {
     md?: {
       description?: string;

@@ -168,7 +168,7 @@ const MAX_MOBILE_COMPOSER_LINES = 16;
  */
 const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
 const EMPTY_QUEUE: QueuedMessage[] = [];
-const EMPTY_QUOTES: readonly never[] = Object.freeze([]);
+const EMPTY_QUOTES: import("@/sync/session-ui-store").QuotedMessage[] = [];
 const EMPTY_SENDING_IDS: string[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
@@ -1187,7 +1187,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             // Commands that manipulate session state or open UI rather than
             // sending a message.
-            else if (commandName === 'load-skills' && (currentSessionId || newSessionDraftOpen)) {
+            if (commandName === 'load-skills' && (currentSessionId || newSessionDraftOpen)) {
                 setSkillMultiselectOpen(true);
                 return;
             }

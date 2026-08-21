@@ -1779,7 +1779,7 @@ const AssistantMessageBody = React.memo(({
             quoteSessionId={sessionId}
             quoteText={assistantQuoteText}
             quoteRole="assistant"
-            quoteCreatedAt={messageCreatedAt}
+            quoteCreatedAt={messageCreatedAt ? new Date(messageCreatedAt).toISOString() : undefined}
         />
     ), [assistantPlanText, assistantQuoteText, hasCopyableText, isTouchContext, messageCreatedAt, messageId, onCopyMessage, reviewTransferAction, sessionId, shareMessageAsImage]);
 
