@@ -579,7 +579,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
         const formatted = formatTimestampForDisplay(messageCreatedAt, timeFormatPreference);
         return formatted.length > 0 ? formatted : null;
     }, [locale, messageCreatedAt, timeFormatPreference]);
-    const actionsBlock = ((canCopyMessage && hasCopyableText) || onRevert || effectiveOnFork || onToggleContextPin) && showUserActions ? (
+    const actionsBlock = chatSurfaceMode !== 'peek' && ((canCopyMessage && hasCopyableText) || onRevert || effectiveOnFork || onToggleContextPin) && showUserActions ? (
         <div className={cn(
             'group/user-actions',
             isMobile
@@ -760,10 +760,13 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
                 )}
                 style={useStickyScrollableUserContent ? { maxHeight: 'calc(var(--chat-scroll-height, 100dvh) * 0.4)' } : undefined}
             >
+                {/* Positional keys, not part ids: the server echo of a just-sent
+                    message swaps the optimistic part id, and id-based keys would
+                    remount the text subtree (blank frame + height jump). */}
                 {userContentParts.map((part, index) => {
                     if (isSubtaskPart(part)) {
                         return (
-                            <React.Fragment key={part.id ?? `user-subtask-${index}`}>
+                            <React.Fragment key={`user-subtask-${index}`}>
                                 <UserSubtaskPart part={part} />
                             </React.Fragment>
                         );
@@ -771,7 +774,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
 
                     if (isShellActionPart(part)) {
                         return (
-                            <React.Fragment key={part.id ?? `user-shell-${index}`}>
+                            <React.Fragment key={`user-shell-${index}`}>
                                 <UserShellActionPart part={part} />
                             </React.Fragment>
                         );
@@ -786,7 +789,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, sessio
                         }
                     }
                     return (
-                        <React.Fragment key={part.id ?? `user-text-${index}`}>
+                        <React.Fragment key={`user-text-${index}`}>
                             <UserTextPart
                                 part={part}
                                 messageId={messageId}
@@ -1762,8 +1765,9 @@ const AssistantMessageBody = React.memo(({
     const shouldDeferSortedInlineText = isSortedRenderMode && !hasStopFinish;
     const showErrorMessage = Boolean(errorMessage);
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
-    const shouldShowMessageActions = hasCopyableText;
-    const shouldShowTurnFooter = isLastAssistantInTurn && hasTextContent && (hasStopFinish || Boolean(errorMessage));
+    const isPeekSurface = chatSurfaceMode === 'peek';
+    const shouldShowMessageActions = hasCopyableText && !isPeekSurface;
+    const shouldShowTurnFooter = isLastAssistantInTurn && hasTextContent && (hasStopFinish || Boolean(errorMessage)) && !isPeekSurface;
     const shouldRenderActionsInActivity = isSortedRenderMode;
     const shouldShowStandaloneMessageActions = showSplitAssistantMessageActions && shouldShowMessageActions && !shouldShowTurnFooter && !shouldRenderActionsInActivity;
 
