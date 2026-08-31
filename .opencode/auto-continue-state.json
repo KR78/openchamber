@@ -1,0 +1,30 @@
+{
+  "sessions": {
+    "ses_fc5516845ffeiMD7M8b4tPiz1X": {
+      "consecutive": 0,
+      "lastNudgeAt": 0,
+      "skills": [
+        {
+          "name": "communication-style",
+          "loadedAt": 1787690931385
+        },
+        {
+          "name": "code-quality-principles",
+          "loadedAt": 1787690931573
+        },
+        {
+          "name": "architecture-paradigms",
+          "loadedAt": 1787690931779
+        },
+        {
+          "name": "architecture-review",
+          "loadedAt": 1787690931954
+        },
+        {
+          "name": "deep-research",
+          "loadedAt": 1787690932130
+        }
+      ]
+    }
+  }
+}
