@@ -3526,6 +3526,6 @@ export const dict = {
   'multirun.overview.bar.waiting': 'Läufe, die auf dich warten: {count}. Der Lauf endet erst, wenn du antwortest.',
   'multirun.overview.prompt.expand': 'Alles zeigen',
   'multirun.overview.prompt.collapse': 'Weniger zeigen',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "Diese Nachricht in deinen Prompt zitieren",
+  "chat.messageBody.actions.removeQuote": "Diese Nachricht aus deinem Prompt entfernen",
 };

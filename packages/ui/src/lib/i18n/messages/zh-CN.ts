@@ -3529,6 +3529,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': '等待你处理的运行：{count}。你回复之前，这次运行不会结束。',
   'multirun.overview.prompt.expand': '展开全部',
   'multirun.overview.prompt.collapse': '收起',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "在提示中引用此消息",
+  "chat.messageBody.actions.removeQuote": "从提示中移除此消息",
 };

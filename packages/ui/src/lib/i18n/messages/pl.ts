@@ -984,6 +984,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.messageBody.actions.copyMessageAria': 'Kopiuj tekst wiadomości',
   'chat.messageBody.actions.copyMessage': 'Kopiuj wiadomość',
   'chat.messageBody.actions.pinContext': 'Przypnij do kontekstu (przetrwa kompakcję)',
+  "chat.messageBody.actions.quoteMessage": "Cytuj tę wiadomość w swoim zapytaniu",
+  "chat.messageBody.actions.removeQuote": "Usuń tę wiadomość ze swojego zapytania",
   'chat.messageBody.actions.unpinContext': 'Odepnij od kontekstu (nie przetrwa kompakcji)',
   'chat.messageBody.actions.contextPinFailed': 'Nie udało się zaktualizować przypięcia w kontekście',
   'chat.messageBody.actions.openPreviewAria': 'Otwórz podgląd',

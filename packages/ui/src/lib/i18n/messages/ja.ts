@@ -3528,6 +3528,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': 'あなたを待っている実行: {count}。応答するまで実行は終わりません。',
   'multirun.overview.prompt.expand': 'すべて表示',
   'multirun.overview.prompt.collapse': '折りたたむ',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "このメッセージをプロンプトに引用",
+  "chat.messageBody.actions.removeQuote": "このメッセージをプロンプトから削除",
 };

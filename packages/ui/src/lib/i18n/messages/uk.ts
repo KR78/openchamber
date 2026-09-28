@@ -3529,6 +3529,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': 'Запусків чекають на вас: {count}. Запуск не завершиться, поки ви не відповісте.',
   'multirun.overview.prompt.expand': 'Показати все',
   'multirun.overview.prompt.collapse': 'Згорнути',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "Цитувати це повідомлення у вашому запиті",
+  "chat.messageBody.actions.removeQuote": "Вилучити це повідомлення з вашого запиту",
 };

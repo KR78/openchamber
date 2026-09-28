@@ -2295,6 +2295,8 @@ export const dict = {
   'chat.messageBody.actions.copyMessageAria': 'Mesaj metnini kopyala',
   'chat.messageBody.actions.copyMessage': 'Mesajı kopyala',
   'chat.messageBody.actions.pinContext': 'Bağlama sabitle (sıkıştırmadan etkilenmez)',
+  "chat.messageBody.actions.quoteMessage": "Bu mesajı isteminizde alıntılayın",
+  "chat.messageBody.actions.removeQuote": "Bu mesajı isteminizden kaldırın",
   'chat.messageBody.actions.unpinContext': 'Bağlamdan sabitlemeyi kaldır (sıkıştırmadan sonra kalmaz)',
   'chat.messageBody.actions.contextPinFailed': 'Bağlam sabitlemesi güncellenemedi',
   'chat.messageBody.actions.openPreviewAria': 'Önizlemeyi aç',

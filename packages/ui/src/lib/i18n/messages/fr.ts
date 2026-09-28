@@ -2076,6 +2076,8 @@ export const dict = {
   'chat.messageBody.actions.copyMessageAria': 'Copier le texte du message',
   'chat.messageBody.actions.copyMessage': 'Copier le message',
   'chat.messageBody.actions.pinContext': 'Épingler dans le contexte (conservé après compactage)',
+  "chat.messageBody.actions.quoteMessage": "Citer ce message dans votre prompt",
+  "chat.messageBody.actions.removeQuote": "Retirer ce message de votre prompt",
   'chat.messageBody.actions.unpinContext': 'Désépingler du contexte (non conservé après compactage)',
   'chat.messageBody.actions.contextPinFailed': 'Impossible de modifier l’épinglage dans le contexte',
   'chat.messageBody.actions.openPreviewAria': 'Ouvrir l\'aperçu',

@@ -3528,6 +3528,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': '사용자를 기다리는 실행: {count}. 응답하기 전에는 실행이 끝나지 않습니다.',
   'multirun.overview.prompt.expand': '모두 보기',
   'multirun.overview.prompt.collapse': '접기',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "이 메시지를 프롬프트에 인용",
+  "chat.messageBody.actions.removeQuote": "이 메시지를 프롬프트에서 제거",
 };

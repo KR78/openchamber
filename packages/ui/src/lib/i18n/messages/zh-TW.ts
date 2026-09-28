@@ -3528,6 +3528,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': '等待你處理的執行：{count}。你回覆之前，這次執行不會結束。',
   'multirun.overview.prompt.expand': '展開全部',
   'multirun.overview.prompt.collapse': '收合',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "在提示中引用此訊息",
+  "chat.messageBody.actions.removeQuote": "從提示中移除此訊息",
 };

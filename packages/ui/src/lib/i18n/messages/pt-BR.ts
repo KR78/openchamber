@@ -3529,6 +3529,6 @@ export const dict: Record<I18nKey, string> = {
   'multirun.overview.bar.waiting': 'Execuções aguardando você: {count}. A execução só termina quando você responder.',
   'multirun.overview.prompt.expand': 'Mostrar tudo',
   'multirun.overview.prompt.collapse': 'Mostrar menos',
-  "chat.messageBody.actions.quoteMessage": "Quote this message in your prompt",
-  "chat.messageBody.actions.removeQuote": "Remove this message from your prompt",
+  "chat.messageBody.actions.quoteMessage": "Citar esta mensagem no seu prompt",
+  "chat.messageBody.actions.removeQuote": "Remover esta mensagem do seu prompt",
 };
