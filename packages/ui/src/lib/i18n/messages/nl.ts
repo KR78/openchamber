@@ -2367,6 +2367,8 @@ export const dict = {
   'chat.messageBody.actions.copyMessageAria': 'Berichttekst kopiëren',
   'chat.messageBody.actions.copyMessage': 'Bericht kopiëren',
   'chat.messageBody.actions.pinContext': 'Vastzetten in context (overleeft compressie)',
+  "chat.messageBody.actions.quoteMessage": "Dit bericht in je prompt citeren",
+  "chat.messageBody.actions.removeQuote": "Dit bericht uit je prompt verwijderen",
   'chat.messageBody.actions.unpinContext': 'Vastzetting uit context halen (verdwijnt bij compressie)',
   'chat.messageBody.actions.contextPinFailed': 'Kan de contextvastzetting niet bijwerken',
   'chat.messageBody.actions.openPreviewAria': 'Preview openen',
