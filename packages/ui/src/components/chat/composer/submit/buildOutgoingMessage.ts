@@ -168,26 +168,21 @@ export function buildOutgoingMessage(
             ...resolved.attachments,
         );
     }
-    const primaryText = texts.join('\n\n');
-
-    // Everything the composer had attached follows its text.
-    additionalParts.push(...queuedContextToParts(
-        buildComposerContext(input, null),
-    ));
-
     // Quote drafts: inject each as a blockquote prefix on the primary message,
     // oldest quote first so the order reads chronologically above the new text.
     const quoteBlocks = (input.quotedTexts ?? [])
         .map((q) => q.trim())
         .filter((q) => q.length > 0)
-        .map((q) => q.split(
-).map((line) => `> ${line}`).join(
-));
-    if (quoteBlocks.length > 0 && primaryText) {
-        primaryText = `${quoteBlocks.join(
+        .map((q) => q.split('\n').map((line) => `> ${line}`).join('\n'));
+    const composerText = texts.join('\n');
+    const primaryText = quoteBlocks.length > 0 && composerText
+        ? `${quoteBlocks.join('\n')}\n\n${composerText}`
+        : composerText;
 
-)}\n\n${primaryText}`;
-    }
+    // Everything the composer had attached follows its text.
+    additionalParts.push(...queuedContextToParts(
+        buildComposerContext(input, null),
+    ));
 
     return {
         primaryText,

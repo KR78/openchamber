@@ -2454,6 +2454,8 @@ export const dict = {
   'chat.messageBody.toast.linkCopyFailed': 'לא ניתן היה להעתיק את הקישור',
   'chat.messageLink.notFound': 'ההודעה המקושרת לא נמצאת בהפעלה זו',
   'chat.messageBody.actions.pinContext': 'הצמד להקשר (נשמר אחרי דחיסה)',
+  "chat.messageBody.actions.quoteMessage": "צטט הודעה זו בהנחיה שלך",
+  "chat.messageBody.actions.removeQuote": "הסר הודעה זו מההנחיה שלך",
   'chat.messageBody.actions.unpinContext': 'בטל הצמדה להקשר (לא יישמר אחרי דחיסה)',
   'chat.messageBody.actions.contextPinFailed': 'לא ניתן היה לעדכן את ההצמדה להקשר',
   'chat.messageBody.actions.copyAnswer': 'העתק תשובה',

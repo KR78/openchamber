@@ -92,7 +92,7 @@ export const SkillPreviewDialog: React.FC<SkillPreviewDialogProps> = ({
             <SimpleMarkdownRenderer
               content={skillContent}
               variant="assistant"
-              stripFrontmatter
+              frontmatter="hide"
               className="text-sm"
             />
           ) : (

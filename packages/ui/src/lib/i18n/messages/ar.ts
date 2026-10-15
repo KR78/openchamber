@@ -2454,6 +2454,8 @@ export const dict = {
   'chat.messageBody.toast.linkCopyFailed': 'تعذّر نسخ الرابط',
   'chat.messageLink.notFound': 'الرسالة المرتبطة ليست في هذه الجلسة',
   'chat.messageBody.actions.pinContext': 'تثبيت في السياق (يبقى بعد الضغط)',
+  "chat.messageBody.actions.quoteMessage": "اقتبس هذه الرسالة في طلبك",
+  "chat.messageBody.actions.removeQuote": "أزل هذه الرسالة من طلبك",
   'chat.messageBody.actions.unpinContext': 'إلغاء التثبيت من السياق (لن يبقى بعد الضغط)',
   'chat.messageBody.actions.contextPinFailed': 'تعذّر تحديث تثبيت السياق',
   'chat.messageBody.actions.copyAnswer': 'نسخ الإجابة',
