@@ -1218,6 +1218,25 @@ const AssistantMessageBody = React.memo(({
         [parts],
     );
 
+    // The "More actions" sheet is the only action surface on touch/always-show
+    // layouts, so it carries the same quote toggle as the inline row.
+    const isQuotedInThisMessage = useSessionUIStore((state) =>
+        sessionId && messageId
+            ? (state.quotedMessages.get(sessionId) ?? []).some((q) => q.messageId === messageId)
+            : false,
+    );
+    const toggleQuoteMessage = React.useCallback(() => {
+        if (!sessionId || !messageId || !assistantQuoteText.trim()) return;
+        useSessionUIStore.getState().toggleQuotedMessage(sessionId, {
+            messageId,
+            sessionId,
+            text: assistantQuoteText.trim(),
+            fullText: assistantQuoteText.trim(),
+            role: 'assistant',
+            createdAt: messageCreatedAt ? new Date(messageCreatedAt).toISOString() : undefined,
+        });
+    }, [assistantQuoteText, messageCreatedAt, messageId, sessionId]);
+
     const isTouchContext = Boolean(hasTouchInput ?? isMobile);
     const alwaysShowMessageActions = Boolean(alwaysShowActions ?? isMobile);
     const { src: footerLogoSrc, onError: handleFooterLogoError, hasLogo: footerHasLogo } = useProviderLogo(footerProviderID ?? null);
@@ -1938,6 +1957,18 @@ const AssistantMessageBody = React.memo(({
                 },
             });
         }
+        // Quote drafts: the same toggle as the inline QuoteButton. `onPointerRow`
+        // keeps it out of the desktop dropdown (where the inline button already
+        // lives) while the sheet still lists it.
+        if (sessionId && messageId && assistantQuoteText.trim()) {
+            actions.push({
+                id: 'quote-message',
+                onPointerRow: true,
+                label: t(isQuotedInThisMessage ? 'chat.messageBody.actions.removeQuote' : 'chat.messageBody.actions.quoteMessage'),
+                icon: <QuoteGlyph className="h-4 w-4" />,
+                onSelect: toggleQuoteMessage,
+            });
+        }
         if (onCopyLink) {
             actions.push({
                 id: 'copy-link',
@@ -2019,7 +2050,7 @@ const AssistantMessageBody = React.memo(({
             }
         }
         return actions;
-    }, [assistantPlanText, canUseProjectPlanActions, contextPinPending, contextPinned, currentProjectRef, extraActions, handleForkClick, handleForkFromHere, handleSaveAsPlanClick, hasCopyableText, isFooterTTSPlaying, isMiniChatSurface, isReviewSessionView, onCopyFooter, onCopyLink, onToggleContextPin, playFooterTTS, reviewTransferAction, shareTurnAsImage, showMessageTTSButtons, stopFooterTTS, t]);
+    }, [assistantPlanText, assistantQuoteText, isQuotedInThisMessage, toggleQuoteMessage, canUseProjectPlanActions, contextPinPending, contextPinned, currentProjectRef, extraActions, handleForkClick, handleForkFromHere, handleSaveAsPlanClick, hasCopyableText, isFooterTTSPlaying, isMiniChatSurface, isReviewSessionView, onCopyFooter, onCopyLink, onToggleContextPin, playFooterTTS, reviewTransferAction, shareTurnAsImage, showMessageTTSButtons, stopFooterTTS, t]);
 
     const footerMenuActions = footerSheetActions.filter((action) => !action.onPointerRow);
 
