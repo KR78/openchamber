@@ -42,6 +42,15 @@ const uniqueTokens = (values: Array<string | null | undefined>): string => {
   return Array.from(new Set(values.map(asCspToken).filter((value): value is string => Boolean(value)))).join(' ');
 };
 
+export const getCspBootstrapHtml = (): string => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none';">
+</head>
+<body></body>
+</html>`;
+
 export function getWebviewHtml(options: WebviewHtmlOptions): string {
   const {
     webview,
@@ -86,7 +95,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${styleSrc}; script-src ${scriptSrc}; connect-src ${connectSrc}; img-src ${imgSrc}; font-src ${fontSrc}; worker-src ${workerSrc};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${styleSrc}; script-src ${scriptSrc}; connect-src ${connectSrc}; img-src ${imgSrc}; media-src ${imgSrc}; font-src ${fontSrc}; worker-src ${workerSrc};">
   <style>
     html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; }
     body { 

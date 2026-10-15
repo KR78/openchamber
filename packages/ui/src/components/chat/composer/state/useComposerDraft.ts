@@ -49,6 +49,13 @@ export interface ComposerDraftOptions {
     confirmedMentionsRef: React.RefObject<Set<string>>;
     /** The draft this composer currently belongs to. */
     identity: ChatDraftIdentity | null;
+    /**
+     * Makes this draft's attachments the app's selected attachment slot when
+     * the identity changes. Off for a chat pinned in the side panel: it takes
+     * the slot only when the user works in it, so the main composer keeps
+     * receiving app-wide attachments meanwhile.
+     */
+    selectAttachmentsOnIdentityChange?: boolean;
     /** User setting: when off, drafts stay in memory without durable writes. */
     persistEnabled: boolean;
     /** The draft restored on mount, if any. */
@@ -80,6 +87,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         setMessage,
         confirmedMentionsRef,
         identity,
+        selectAttachmentsOnIdentityChange = true,
         persistEnabled,
         initialDraft,
         onIdentityChange,
@@ -104,8 +112,9 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     // Follow the rendered composer, not the sidebar's deferred selection.
     // Layout timing prevents the incoming composer painting outgoing files.
     React.useLayoutEffect(() => {
+        if (!selectAttachmentsOnIdentityChange) return;
         useInputStore.getState().selectAttachmentDraft(identity);
-    }, [identity]);
+    }, [identity, selectAttachmentsOnIdentityChange]);
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
@@ -162,7 +171,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         }
         requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.('saved'));
         // Runs once; the initial draft is captured at mount by design.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [persistEnabled]);
 
     // Identity switch: save the outgoing draft, load the incoming one.
