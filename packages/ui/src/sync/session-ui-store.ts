@@ -29,6 +29,7 @@ import { fetchSessionKnowledge, reportSessionKnowledgeDelivered } from "@/lib/se
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { isDirectoryUnknown, useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
+import { useSessionTabsStore } from "@/stores/useSessionTabsStore"
 import { selectCommandsForDirectory, useCommandsStore } from "@/stores/useCommandsStore"
 import { selectSkillsForDirectory, useSkillsStore } from "@/stores/useSkillsStore"
 import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
@@ -1930,6 +1931,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
           : undefined
 
         notifyMessageSent(createdDraftSession.sessionId)
+        // Sending a message means working in the session: its tab stays.
+        useSessionTabsStore.getState().pinTab(createdDraftSession.sessionId)
 
         markPendingUserSendAnimation(createdDraftSession.sessionId)
 
@@ -2030,6 +2033,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         : null
       if (targetSessionId) {
         notifyMessageSent(targetSessionId)
+        useSessionTabsStore.getState().pinTab(targetSessionId)
       }
 
       if (targetSessionId) {
