@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode est inclus dans OpenChamber. Mettez OpenChamber à jour pour obtenir OpenCode v2.",
@@ -152,6 +153,7 @@ export const dict = {
   ...mcpGridI18n.fr,
   ...pluginsGridI18n.fr,
   ...integrationsCatalogI18n['fr'],
+  ...diffFindI18n['fr'],
   'terminalView.actions.attachSelection': 'Joindre la sortie sélectionnée',
   'terminalView.actions.copySelection': 'Copier la sortie sélectionnée',
   'terminalView.toast.selectionCopied': 'Sortie copiée',
@@ -1252,6 +1254,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'Autres fichiers : {count}',
   'walkthrough.toc.uncovered': 'Non traité : {count}',
   'walkthrough.toc.resize': 'Redimensionner la colonne du sommaire',
+  'walkthrough.toc.jumpAria': 'Aller à une étape',
+  'walkthrough.options.title': 'Options du parcours',
+  'walkthrough.options.moreAria': 'Plus d’options du parcours',
+  'walkthrough.options.model': 'Modèle',
+  'walkthrough.options.language': 'Langue',
   'walkthrough.importance.critical': 'Changement clé',
   'walkthrough.importance.criticalHint': "Cette étape porte l'essentiel du changement, lisez-la attentivement. Ce n'est pas un problème détecté dans votre code.",
   'walkthrough.importance.context': 'Contexte',
@@ -2426,6 +2433,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Effacer la recherche',
   'chat.modelControls.current': 'Actuel',
   'chat.modelControls.thinking': 'Pensée',
+  'chat.modelControls.inheritedVariantTooltip': 'Pensée : {variant}, valeur par défaut de ce modèle',
   'chat.modelControls.default': 'Défaut',
   'chat.modelControls.selectAgent': 'Sélectionner un agent',
   'chat.modelControls.costPerMillion': 'Coût ($/1 million de jetons)',
@@ -3114,6 +3122,7 @@ export const dict = {
   'quota.window.daily': 'Quotidien',
   'quota.window.monthly': 'Mensuel',
   'quota.window.credits': 'Crédits',
+  'quota.window.keyLimit': 'Limite de la clé',
   'quota.window.creditsBalance': 'Solde de crédits',
   'quota.window.monthlyCredits': 'Crédits mensuels',
   'quota.window.purchasedCredits': 'Crédits achetés',

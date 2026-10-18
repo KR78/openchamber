@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode is bundled with OpenChamber. Update OpenChamber to get OpenCode v2.",
@@ -152,6 +153,7 @@ export const dict = {
   ...mcpGridI18n.en,
   ...pluginsGridI18n.en,
   ...integrationsCatalogI18n['en'],
+  ...diffFindI18n['en'],
   'terminalView.actions.attachSelection': 'Attach selected output',
   'terminalView.actions.copySelection': 'Copy selected output',
   'terminalView.toast.selectionCopied': 'Output copied',
@@ -1446,6 +1448,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'More files: {count}',
   'walkthrough.toc.uncovered': 'Not covered: {count}',
   'walkthrough.toc.resize': 'Resize the contents column',
+  'walkthrough.toc.jumpAria': 'Go to step',
+  'walkthrough.options.title': 'Walkthrough options',
+  'walkthrough.options.moreAria': 'More walkthrough options',
+  'walkthrough.options.model': 'Model',
+  'walkthrough.options.language': 'Language',
   'walkthrough.importance.critical': 'Key change',
   'walkthrough.importance.criticalHint': 'This step drives the rest of the change, so read it closely. It is not a problem found in your code.',
   'walkthrough.importance.context': 'Context',
@@ -2749,6 +2756,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Clear search',
   'chat.modelControls.current': 'Current',
   'chat.modelControls.thinking': 'Thinking',
+  'chat.modelControls.inheritedVariantTooltip': "Thinking: {variant}, this model's default",
   'chat.modelControls.default': 'Default',
   'chat.modelControls.selectAgent': 'Select agent',
   'chat.modelControls.costPerMillion': 'Cost ($/1M tokens)',
@@ -3456,6 +3464,7 @@ export const dict = {
   'quota.window.daily': 'Daily',
   'quota.window.monthly': 'Monthly',
   'quota.window.credits': 'Credits',
+  'quota.window.keyLimit': 'Key Limit',
   'quota.window.creditsBalance': 'Credits Balance',
   'quota.window.monthlyCredits': 'Monthly Credits',
   'quota.window.purchasedCredits': 'Purchased Credits',

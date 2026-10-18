@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode ist in OpenChamber enthalten. Aktualisieren Sie OpenChamber, um OpenCode v2 zu erhalten.",
@@ -152,6 +153,7 @@ export const dict = {
   ...mcpGridI18n.de,
   ...pluginsGridI18n.de,
   ...integrationsCatalogI18n['de'],
+  ...diffFindI18n['de'],
   'common.language.german': 'Deutsch',
   'common.loading': 'Wird geladen...',
   'common.unavailable': 'Nicht verfügbar',
@@ -2478,6 +2480,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Suche löschen',
   'chat.modelControls.current': 'Aktuell',
   'chat.modelControls.thinking': 'Denken',
+  'chat.modelControls.inheritedVariantTooltip': 'Denken: {variant}, Standard für dieses Modell',
   'chat.modelControls.default': 'Standard',
   'chat.modelControls.selectAgent': 'Agent auswählen',
   'chat.modelControls.costPerMillion': 'Kosten ($/1M Tokens)',
@@ -3180,6 +3183,7 @@ export const dict = {
   'quota.window.daily': 'Täglich',
   'quota.window.monthly': 'Monatlich',
   'quota.window.credits': 'Credits',
+  'quota.window.keyLimit': 'Schlüssellimit',
   'quota.window.creditsBalance': 'Kreditguthaben',
   'quota.window.monthlyCredits': 'Monatliche Credits',
   'quota.window.purchasedCredits': 'Gekaufte Credits',
@@ -3403,6 +3407,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'Weitere Dateien: {count}',
   'walkthrough.toc.uncovered': 'Nicht abgedeckt: {count}',
   'walkthrough.toc.resize': 'Größe ändern',
+  'walkthrough.toc.jumpAria': 'Zu Schritt springen',
+  'walkthrough.options.title': 'Walkthrough-Optionen',
+  'walkthrough.options.moreAria': 'Weitere Walkthrough-Optionen',
+  'walkthrough.options.model': 'Modell',
+  'walkthrough.options.language': 'Sprache',
   'walkthrough.importance.critical': 'Kernänderung',
   'walkthrough.importance.criticalHint': 'Dieser Schritt trägt die eigentliche Änderung, lesen Sie ihn genau. Es ist kein in Ihrem Code gefundenes Problem.',
   'walkthrough.importance.context': 'Kontext',

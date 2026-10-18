@@ -22,6 +22,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict: Record<I18nKey, string> = {
   "opencodeCompatibility.bundled": "OpenCode 随 OpenChamber 一起提供。请更新 OpenChamber 以获取 OpenCode v2。",
@@ -153,6 +154,7 @@ export const dict: Record<I18nKey, string> = {
   ...mcpGridI18n['zh-CN'],
   ...pluginsGridI18n['zh-CN'],
   ...integrationsCatalogI18n['zh-CN'],
+  ...diffFindI18n['zh-CN'],
   'terminalView.actions.attachSelection': '附加所选输出',
   'terminalView.actions.copySelection': '复制所选输出',
   'terminalView.toast.selectionCopied': '已复制输出',
@@ -1447,6 +1449,11 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.toc.moreFiles': '其他文件：{count}',
   'walkthrough.toc.uncovered': '未涵盖：{count}',
   'walkthrough.toc.resize': '调整目录栏宽度',
+  'walkthrough.toc.jumpAria': '跳转到步骤',
+  'walkthrough.options.title': '导读选项',
+  'walkthrough.options.moreAria': '更多导读选项',
+  'walkthrough.options.model': '模型',
+  'walkthrough.options.language': '语言',
   'walkthrough.importance.critical': '关键改动',
   'walkthrough.importance.criticalHint': '这一步带动了其余改动，值得仔细阅读。它不是在你的代码中发现的问题。',
   'walkthrough.importance.context': '背景',
@@ -2713,6 +2720,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.modelControls.clearSearch': '清除搜索',
   'chat.modelControls.current': '当前',
   'chat.modelControls.thinking': '思考',
+  'chat.modelControls.inheritedVariantTooltip': '思考：{variant}，此模型的默认值',
   'chat.modelControls.default': '默认',
   'chat.modelControls.selectAgent': '选择智能体',
   'chat.modelControls.costPerMillion': '成本（$/100万 tokens）',
@@ -3455,6 +3463,7 @@ export const dict: Record<I18nKey, string> = {
   'quota.window.daily': '每日',
   'quota.window.monthly': '每月',
   'quota.window.credits': '点数额度',
+  'quota.window.keyLimit': '密钥限额',
   'quota.window.creditsBalance': '额度余额',
   'quota.window.monthlyCredits': '每月积分',
   'quota.window.purchasedCredits': '已购买积分',

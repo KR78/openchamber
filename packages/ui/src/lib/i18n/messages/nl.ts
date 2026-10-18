@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode is inbegrepen bij OpenChamber. Werk OpenChamber bij om OpenCode v2 te krijgen.",
@@ -152,6 +153,7 @@ export const dict = {
   ...mcpGridI18n.nl,
   ...pluginsGridI18n.nl,
   ...integrationsCatalogI18n['nl'],
+  ...diffFindI18n['nl'],
   'terminalView.actions.attachSelection': 'Geselecteerde uitvoer toevoegen',
   'terminalView.actions.copySelection': 'Geselecteerde uitvoer kopiëren',
   'terminalView.toast.selectionCopied': 'Uitvoer gekopieerd',
@@ -1438,6 +1440,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'Meer bestanden: {count}',
   'walkthrough.toc.uncovered': 'Niet besproken: {count}',
   'walkthrough.toc.resize': 'Grootte van de inhoudskolom aanpassen',
+  'walkthrough.toc.jumpAria': 'Naar stap gaan',
+  'walkthrough.options.title': 'Opties voor de rondleiding',
+  'walkthrough.options.moreAria': 'Meer opties voor de rondleiding',
+  'walkthrough.options.model': 'Model',
+  'walkthrough.options.language': 'Taal',
   'walkthrough.importance.critical': 'Belangrijke wijziging',
   'walkthrough.importance.criticalHint': 'Deze stap bepaalt de rest van de wijziging, dus lees hem zorgvuldig. Het is geen probleem dat in uw code is gevonden.',
   'walkthrough.importance.context': 'Context',
@@ -2749,6 +2756,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Zoekopdracht wissen',
   'chat.modelControls.current': 'Huidig',
   'chat.modelControls.thinking': 'Denken',
+  'chat.modelControls.inheritedVariantTooltip': 'Denken: {variant}, standaard voor dit model',
   'chat.modelControls.default': 'Standaard',
   'chat.modelControls.selectAgent': 'Agent kiezen',
   'chat.modelControls.costPerMillion': 'Kosten ($/1M tokens)',
@@ -3456,6 +3464,7 @@ export const dict = {
   'quota.window.daily': 'Dagelijks',
   'quota.window.monthly': 'Maandelijks',
   'quota.window.credits': 'Credits',
+  'quota.window.keyLimit': 'Sleutellimiet',
   'quota.window.creditsBalance': 'Creditsaldo',
   'quota.window.monthlyCredits': 'Maandelijkse credits',
   'quota.window.purchasedCredits': 'Gekochte credits',

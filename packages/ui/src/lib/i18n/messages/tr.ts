@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode, OpenChamber ile birlikte gelir. OpenCode v2 için OpenChamber’ı güncelleyin.",
@@ -91,6 +92,7 @@ export const dict = {
   ...mcpGridI18n.tr,
   ...pluginsGridI18n.tr,
   ...integrationsCatalogI18n['tr'],
+  ...diffFindI18n['tr'],
   'terminalView.actions.attachSelection': 'Seçili çıktıyı ekle',
   'terminalView.actions.copySelection': 'Seçili çıktıyı kopyala',
   'terminalView.toast.selectionCopied': 'Çıktı kopyalandı',
@@ -1319,6 +1321,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'Daha fazla dosya: {count}',
   'walkthrough.toc.uncovered': 'Kapsanmayan: {count}',
   'walkthrough.toc.resize': 'İçerik sütununu yeniden boyutlandır',
+  'walkthrough.toc.jumpAria': 'Adıma git',
+  'walkthrough.options.title': 'İnceleme turu seçenekleri',
+  'walkthrough.options.moreAria': 'Diğer inceleme turu seçenekleri',
+  'walkthrough.options.model': 'Model',
+  'walkthrough.options.language': 'Dil',
   'walkthrough.importance.critical': 'Ana değişiklik',
   'walkthrough.importance.criticalHint': 'Bu adım değişikliğin geri kalanını belirler, bu yüzden dikkatlice oku. Kodunda bulunan bir sorun değildir.',
   'walkthrough.importance.context': 'Bağlam',
@@ -2577,6 +2584,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Aramayı temizle',
   'chat.modelControls.current': 'Mevcut',
   'chat.modelControls.thinking': 'Düşünme',
+  'chat.modelControls.inheritedVariantTooltip': 'Düşünme: {variant}, bu modelin varsayılanı',
   'chat.modelControls.default': 'Varsayılan',
   'chat.modelControls.selectAgent': 'Agent seç',
   'chat.modelControls.costPerMillion': 'Maliyet ($/1M token)',
@@ -3260,6 +3268,7 @@ export const dict = {
   'quota.window.daily': 'Günlük',
   'quota.window.monthly': 'Aylık',
   'quota.window.credits': 'Kredi',
+  'quota.window.keyLimit': 'Anahtar Limiti',
   'quota.window.creditsBalance': 'Kredi Bakiyesi',
   'quota.window.monthlyCredits': 'Aylık Kredi',
   'quota.window.purchasedCredits': 'Satın Alınan Kredi',
@@ -3269,10 +3278,10 @@ export const dict = {
   'quota.window.api': 'API',
   'quota.window.planLimit': 'Plan Limiti',
   'quota.window.onDemand': 'İsteğe bağlı',
-  'quota.window.session': 'Session',
+  'quota.window.session': 'Oturum',
   'quota.window.premium': 'Premium Etkileşimler',
   'quota.window.chat': 'Sohbet İstekleri',
-  'quota.window.completions': 'Completions',
+  'quota.window.completions': 'Kod Tamamlamaları',
   'quota.window.premiumInteractions': 'Premium etkileşimler',
   'chat.workStatus.ariaLabel': 'Çalışma durumu',
   'chat.workStatus.context.label': 'Bağlam',

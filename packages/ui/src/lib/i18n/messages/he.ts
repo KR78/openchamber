@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   'opencodeCompatibility.bundled': 'OpenCode מגיע יחד עם OpenChamber. יש לעדכן את OpenChamber כדי לקבל את OpenCode v2.',
@@ -1417,6 +1418,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'קבצים נוספים: {count}',
   'walkthrough.toc.uncovered': 'לא נסקרו: {count}',
   'walkthrough.toc.resize': 'שנה את רוחב עמודת התוכן',
+  'walkthrough.toc.jumpAria': 'מעבר לשלב',
+  'walkthrough.options.title': 'אפשרויות הסיור המודרך',
+  'walkthrough.options.moreAria': 'אפשרויות נוספות לסיור המודרך',
+  'walkthrough.options.model': 'מודל',
+  'walkthrough.options.language': 'שפה',
   'walkthrough.importance.critical': 'שינוי מרכזי',
   'walkthrough.importance.criticalHint': 'השלב הזה מניע את שאר השינוי, לכן כדאי לקרוא אותו בעיון. זו לא בעיה שנמצאה בקוד.',
   'walkthrough.importance.context': 'הקשר',
@@ -2700,6 +2706,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'נקה חיפוש',
   'chat.modelControls.current': 'נוכחי',
   'chat.modelControls.thinking': 'חשיבה',
+  'chat.modelControls.inheritedVariantTooltip': 'חשיבה: {variant}, ברירת המחדל של המודל הזה',
   'chat.modelControls.default': 'ברירת מחדל',
   'chat.modelControls.selectAgent': 'בחר סוכן',
   'chat.modelControls.costPerMillion': 'עלות ($ ל-1M טוקנים)',
@@ -3410,6 +3417,7 @@ export const dict = {
   'quota.window.daily': 'יומי',
   'quota.window.monthly': 'חודשי',
   'quota.window.credits': 'קרדיטים',
+  'quota.window.keyLimit': 'מגבלת המפתח',
   'quota.window.creditsBalance': 'יתרת קרדיטים',
   'quota.window.monthlyCredits': 'קרדיטים חודשיים',
   'quota.window.purchasedCredits': 'קרדיטים שנרכשו',
@@ -3795,6 +3803,7 @@ export const dict = {
   ...mcpGridI18n.he,
   ...pluginsGridI18n.he,
   ...integrationsCatalogI18n['he'],
+  ...diffFindI18n['he'],
   'settings.usage.page.state.claudeSignedOutTitle': 'לא מחובר ל-Claude Code',
   'settings.usage.page.state.claudeSignInCommand': 'יש להריץ את הפקודה הזו במסוף:',
   'settings.openchamber.visual.field.confirmFileTreeMove': 'אישור לפני העברת קבצים',

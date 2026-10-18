@@ -634,6 +634,28 @@ and the send path reading the same grammar.
 - `ChatInput.tsx` maps Ctrl+N/P to the active command, skill, snippet, or
   mention picker after its IME guard.
 
+## Autocomplete details
+
+`ui/useAutocompleteDetails.ts` owns detail visibility for the command, skill and
+`@` mention pickers (in the mention picker only agent rows carry details). Each list attaches its scroll handler to its own `ScrollableOverlay`.
+Scrolling hides details and cancels the row's pending 200ms display through
+`active`, while selection and the draft stay intact. Details stay closed until
+a fresh mouse move after a 150ms scroll gap or another keyboard navigation.
+
+The hook runs `scrollIntoView` in the layout phase and records its resulting
+position so its deferred scroll event preserves the requested details. A
+keyboard request also handles one-item lists with an unchanged selected index.
+The row clears its display timer on deactivation or unmount; React removes the
+list's scroll handler on unmount.
+
+`../AutocompleteDetails.test.tsx` mounts the command and skill pickers and their
+row tooltips; the mention picker uses the same hook and wiring without its own test. It covers delayed display cancellation, sustained scrolling, unrelated
+scrolls, same-row hover recovery, keyboard recovery with and without an index
+change, pending manual scroll events, selection callbacks and unmount cleanup.
+Its input forwards keys directly to the picker handle; it does not exercise
+the full composer's key routing or draft persistence. Happy DOM models
+`scrollIntoView`; native scrolling and positioning require a full-app live run.
+
 ## Input recall ownership
 
 Prompt recall has two owners on purpose.
@@ -904,6 +926,8 @@ through the timeline controller and flashes it. Ranges are
 re-resolved by text and context whenever the marked message re-renders or
 remounts. Offsets only break ties. Quotes sent before anchors existed are
 found only when their text appears once in the message.
+
+A quote taken inside a page the agent showed (`openchamber_render`) has `page: { partId }` in its anchor: its text stream is the page's body, measured and re-found inside the page's frame. The layer does not paint those marks; it publishes them, asks for reveals and hears clicks through `message/pageQuoteBridge.ts` (see `message/parts/DOCUMENTATION.md`).
 
 ## Mobile comment mode
 

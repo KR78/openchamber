@@ -22,6 +22,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict: Record<I18nKey, string> = {
   "opencodeCompatibility.bundled": "OpenCode は OpenChamber に同梱されています。OpenCode v2 を利用するには OpenChamber を更新してください。",
@@ -153,6 +154,7 @@ export const dict: Record<I18nKey, string> = {
   ...mcpGridI18n.ja,
   ...pluginsGridI18n.ja,
   ...integrationsCatalogI18n['ja'],
+  ...diffFindI18n['ja'],
   'terminalView.actions.attachSelection': '選択した出力を添付',
   'terminalView.actions.copySelection': '選択した出力をコピー',
   'terminalView.toast.selectionCopied': '出力をコピーしました',
@@ -1443,6 +1445,11 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.toc.moreFiles': 'その他のファイル: {count}',
   'walkthrough.toc.uncovered': '未対応: {count}',
   'walkthrough.toc.resize': '目次の列幅を変更',
+  'walkthrough.toc.jumpAria': 'ステップへ移動',
+  'walkthrough.options.title': 'ウォークスルーのオプション',
+  'walkthrough.options.moreAria': 'ウォークスルーのその他のオプション',
+  'walkthrough.options.model': 'モデル',
+  'walkthrough.options.language': '言語',
   'walkthrough.importance.critical': '主要な変更',
   'walkthrough.importance.criticalHint': 'このステップが変更全体を動かしているため、じっくり読んでください。コードで見つかった問題ではありません。',
   'walkthrough.importance.context': '補足',
@@ -2746,6 +2753,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.modelControls.clearSearch': '検索をクリア',
   'chat.modelControls.current': '現在',
   'chat.modelControls.thinking': '思考',
+  'chat.modelControls.inheritedVariantTooltip': '思考: {variant}（このモデルのデフォルト）',
   'chat.modelControls.default': 'デフォルト',
   'chat.modelControls.selectAgent': 'エージェントを選択',
   'chat.modelControls.costPerMillion': 'コスト（$/100万トークン）',
@@ -3450,6 +3458,7 @@ export const dict: Record<I18nKey, string> = {
   'quota.window.daily': '日次',
   'quota.window.monthly': '毎月',
   'quota.window.credits': 'クレジット',
+  'quota.window.keyLimit': 'キーの上限',
   'quota.window.creditsBalance': 'クレジット残高',
   'quota.window.monthlyCredits': '月間クレジット',
   'quota.window.purchasedCredits': '購入済みクレジット',

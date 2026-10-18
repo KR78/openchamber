@@ -4,6 +4,9 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { ACTIVE_PROJECT_ACTION_LIFECYCLES, useTerminalStore } from '@/stores/useTerminalStore';
 import { Spinner } from '@/components/ui/spinner';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useDraftSpaceTarget } from '@/lib/spaces/useDraftSpaceTarget';
+import { panelContentDirectory } from '@/lib/spaces/space-creation-requests';
+import { SpacePreparing } from '@/components/session/spaces/SpacePreparing';
 import { type TerminalStreamEvent } from '@/lib/api/types';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useFontPreferences } from '@/hooks/useFontPreferences';
@@ -136,8 +139,12 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, directory, 
     const hasActiveContext = currentSessionId !== null || newSessionDraft?.open === true;
 
     const contextDirectory = useEffectiveDirectory() ?? null;
+    // A draft waiting for a new space keeps the project's folder for its composer and its panel
+    // tabs; its shell goes to the space, and nowhere until the space runs.
+    const draftSpace = useDraftSpaceTarget();
+    const shellDirectory = panelContentDirectory(draftSpace, contextDirectory);
     const targetDirectory = directory ?? null;
-    const terminalDirectory = targetDirectory || contextDirectory;
+    const terminalDirectory = targetDirectory || shellDirectory;
     const hasExplicitTerminalTarget = targetDirectory !== null;
     const directoryTerminalState = useTerminalStore((s) => terminalDirectory ? s.getDirectoryState(terminalDirectory) : undefined);
     const terminalHydrated = useTerminalStore((s) => s.hasHydrated);
@@ -1107,6 +1114,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, directory, 
                 {t('terminalView.empty.selectSession')}
             </div>
         );
+    }
+
+    if (!terminalDirectory && draftSpace?.kind === 'preparing') {
+        return <SpacePreparing />;
     }
 
     if (!terminalDirectory) {

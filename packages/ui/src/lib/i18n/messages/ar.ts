@@ -21,6 +21,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   'opencodeCompatibility.bundled': 'يأتي OpenCode مضمّنًا مع OpenChamber. حدّث OpenChamber للحصول على OpenCode v2.',
@@ -1417,6 +1418,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'ملفات أخرى: {count}',
   'walkthrough.toc.uncovered': 'غير مشمولة: {count}',
   'walkthrough.toc.resize': 'تغيير حجم عمود المحتويات',
+  'walkthrough.toc.jumpAria': 'الانتقال إلى خطوة',
+  'walkthrough.options.title': 'خيارات جولة الشرح',
+  'walkthrough.options.moreAria': 'مزيد من خيارات جولة الشرح',
+  'walkthrough.options.model': 'النموذج',
+  'walkthrough.options.language': 'اللغة',
   'walkthrough.importance.critical': 'تغيير رئيسي',
   'walkthrough.importance.criticalHint': 'تقود هذه الخطوة بقية التغيير، فاقرأها بعناية. هذه ليست مشكلة وُجدت في الكود الخاص بك.',
   'walkthrough.importance.context': 'سياق',
@@ -2700,6 +2706,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'مسح البحث',
   'chat.modelControls.current': 'الحالي',
   'chat.modelControls.thinking': 'التفكير',
+  'chat.modelControls.inheritedVariantTooltip': 'التفكير: {variant}، الافتراضي لهذا النموذج',
   'chat.modelControls.default': 'الافتراضي',
   'chat.modelControls.selectAgent': 'اختيار وكيل',
   'chat.modelControls.costPerMillion': 'التكلفة ($/1M رمز)',
@@ -3410,6 +3417,7 @@ export const dict = {
   'quota.window.daily': 'يومي',
   'quota.window.monthly': 'شهري',
   'quota.window.credits': 'الأرصدة',
+  'quota.window.keyLimit': 'حد المفتاح',
   'quota.window.creditsBalance': 'رصيد الأرصدة',
   'quota.window.monthlyCredits': 'الأرصدة الشهرية',
   'quota.window.purchasedCredits': 'الأرصدة المشتراة',
@@ -3795,6 +3803,7 @@ export const dict = {
   ...mcpGridI18n.ar,
   ...pluginsGridI18n.ar,
   ...integrationsCatalogI18n['ar'],
+  ...diffFindI18n['ar'],
   'settings.usage.page.state.claudeSignedOutTitle': 'لم يتم تسجيل الدخول إلى Claude Code',
   'settings.usage.page.state.claudeSignInCommand': 'شغّل هذا الأمر في الطرفية:',
   'settings.openchamber.visual.field.confirmFileTreeMove': 'التأكيد قبل نقل الملفات',
