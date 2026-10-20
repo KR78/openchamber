@@ -83,6 +83,7 @@ import { hasConfigChangedGrant } from '@/lib/source-control/types';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
+import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
 import { cn } from '@/lib/utils';
 import { generateCommitMessage as generateSessionCommitMessage, getGitWorktreeBootstrapStatus } from '@/lib/gitApi';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -259,20 +260,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       return undefined;
     }
 
-    const fromAvailable = availableWorktrees.find(
-      (metadata) => normalizePath(metadata.path) === normalizedCurrentDirectory
-    );
-    if (fromAvailable) {
-      return fromAvailable;
-    }
-
-    for (const metadata of worktreeMap.values()) {
-      if (normalizePath(metadata.path) === normalizedCurrentDirectory) {
-        return metadata;
-      }
-    }
-
-    return undefined;
+    return findWorktreeHoldingDirectory(availableWorktrees, normalizedCurrentDirectory)
+      ?? findWorktreeHoldingDirectory(worktreeMap.values(), normalizedCurrentDirectory);
   }, [availableWorktrees, normalizedCurrentDirectory, worktreeMap]);
   const storeWorktreeMetadata = React.useMemo(() => {
     if (currentSessionId) {
@@ -301,7 +290,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   // one, `gitDirectory` is the effective repository all git data and actions
   // operate on. The hook owns probing, discovery, auto-select, and
   // stale-selection recovery; data fetching below keys off its result.
-  const { rootIsGitRepo, gitDirectory, nestedRepos } = useNestedGitDirectory(
+  const { rootIsGitRepo, gitDirectory, nestedRepos, repositoryOptions } = useNestedGitDirectory(
     currentDirectory ?? null,
     { enabled: isActive, recheckOnOpen: true },
   );
@@ -2469,16 +2458,14 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
               // The branch's own tab of the Tracker, in the panel this view is in.
               gitDirectory ? () => openContextPanelTab(panelDirectory ?? gitDirectory, { mode: 'pr' }) : undefined
             }
-            repositoryOptions={
-              gitDirectory !== currentDirectory && Array.isArray(nestedRepos) ? nestedRepos : undefined
-            }
-            selectedRepository={gitDirectory !== currentDirectory ? gitDirectory : null}
+            repositoryOptions={repositoryOptions ?? undefined}
+            selectedRepository={repositoryOptions ? gitDirectory : null}
             onSelectRepository={
-              gitDirectory !== currentDirectory && currentDirectory
+              repositoryOptions && currentDirectory
                 ? (repository) => selectNestedRepo(currentDirectory, repository)
                 : undefined
             }
-            repositoryRoot={gitDirectory !== currentDirectory ? currentDirectory : undefined}
+            repositoryRoot={repositoryOptions ? currentDirectory ?? undefined : undefined}
           />
 
       {/* VS Code manages Git hosting itself; the webview projects remotes as a system binding without a settings surface. */}

@@ -60,6 +60,8 @@ import {
   type Session,
   type SessionStatus,
   type Skill,
+  type SyntheticMessage,
+  type UserMessage,
   type Vcs,
   toModelRef,
 } from "./model"
@@ -71,6 +73,7 @@ import {
   deniesAnyProvider,
   mergeConfigDocuments,
   projectAgent,
+  projectInboxMessage,
   projectMessages,
   projectProject,
   projectSession,
@@ -445,6 +448,16 @@ type DirectorySwitchResult = {
 export type MessagePage = {
   items: Array<{ info: Message; parts: Part[] }>
   cursor: { previous?: string; next?: string }
+}
+
+/**
+ * A message a session's pending OpenCode inbox item stands for, projected the
+ * way `session.inbox.enqueued` paints it live. Control items (compaction,
+ * move) paint nothing and are left out.
+ */
+export type PendingInboxMessage = {
+  info: UserMessage | SyntheticMessage
+  parts: Part[] | null
 }
 
 export type SessionPage = {
@@ -1082,6 +1095,26 @@ class OpencodeService {
       items,
       cursor: pageCursor({ ...response.cursor, next: lastPage ? undefined : response.cursor.next }),
     }
+  }
+
+  /**
+   * Pending items of one session's OpenCode inbox.
+   *
+   * A prompt steered into a running turn is not part of the message history
+   * until OpenCode admits it, so a client that starts (or restarts) while the
+   * session is busy has to read the inbox to paint those messages again.
+   */
+  async getSessionInbox(
+    id: string,
+    directory?: string | null,
+  ): Promise<readonly PendingInboxMessage[]> {
+    const items = await call("session.inbox.list", () =>
+      this.clientFor(directory).session.inbox.list({ sessionID: id }),
+    )
+    return items.flatMap((item) => {
+      const projected = projectInboxMessage(item, { sessionID: id, messageID: item.id, created: item.time.created })
+      return projected ? [projected] : []
+    })
   }
 
   /**
@@ -2064,6 +2097,39 @@ class OpencodeService {
     } catch {
       return "unhealthy"
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Files on the machine OpenCode runs on
+  // -------------------------------------------------------------------------
+
+  /**
+   * Writes files into a new folder under OpenCode's own temp folder
+   * (`GET /api/info` names it; its agents read there without asking) and
+   * answers each file's absolute path as OpenCode wrote it, or its error. The
+   * bytes reach OpenCode through the OpenChamber server, so the files land
+   * where OpenCode runs, also when that is another machine. A fresh folder per
+   * call keeps a repeated name from overwriting; names must be unique within
+   * a call. The write route is experimental in OpenCode 2.x.
+   */
+  async writeOpenCodeTempFiles(
+    directory: string | null | undefined,
+    files: Array<{ filename: string; bytes: Uint8Array }>,
+  ): Promise<Array<{ filename: string; path: string } | { filename: string; error: Error }>> {
+    const client = this.clientFor(directory)
+    const info = await call("server.info", () => client.server.info())
+    const folderName = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, "0")).join("")
+    const folder = `${info.paths.tmp.replace(/[\\/]+$/, "")}/openchamber/${folderName}`
+    const results: Array<{ filename: string; path: string } | { filename: string; error: Error }> = []
+    for (const { filename, bytes } of files) {
+      try {
+        const written = await call("file.write", () => client.file.write({ path: `${folder}/${filename}`, payload: bytes }))
+        results.push({ filename, path: written.data.path })
+      } catch (error) {
+        results.push({ filename, error: error instanceof Error ? error : new Error(String(error)) })
+      }
+    }
+    return results
   }
 
   // -------------------------------------------------------------------------

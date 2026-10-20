@@ -26,7 +26,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { archiveUndoToastOptions, collectSessionSubtreeIds } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
+import { archiveUndoToastOptions, collectSessionMoveDescendants, collectSessionSubtreeIds } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
@@ -69,6 +69,7 @@ import { buildSessionTreeMoveMessages, requestSessionTreeMove, useIsSessionWorkt
 import { titlebarControlsWidthReaderRef } from './titlebarControlsWidth';
 import { useLayoutAnimationMs } from '@/hooks/useLayoutAnimationMs';
 import { LAYOUT_ANIMATION_EASING } from '@/lib/layoutAnimation';
+import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
 
 // Like the icon rail: muted at rest, full strength on hover, while its menu is
 // open or while what it controls is on, and no hover fill.
@@ -369,7 +370,7 @@ export const Header: React.FC = () => {
     }
 
     for (const worktrees of state.availableWorktreesByProject.values()) {
-      const match = worktrees.find((worktree) => normalize(worktree.path) === candidateDirectory);
+      const match = findWorktreeHoldingDirectory(worktrees, candidateDirectory);
       const branch = match?.branch?.trim();
       if (branch) {
         return branch;
@@ -532,21 +533,10 @@ export const Header: React.FC = () => {
     const root = sessions.find((session) => session.id === currentSessionId);
     if (!root) return;
 
-    const descendants: typeof sessions = [];
-    const pendingParentIds = [currentSessionId];
-    for (let index = 0; index < pendingParentIds.length; index += 1) {
-      const parentId = pendingParentIds[index];
-      for (const session of sessions) {
-        if (session.parentID !== parentId) continue;
-        descendants.push(session);
-        pendingParentIds.push(session.id);
-      }
-    }
-
     requestSessionTreeMove({
       kind: 'quick',
       root,
-      descendants,
+      descendants: collectSessionMoveDescendants(root, []),
       sourceDirectory: sessionDirectory,
       messages: buildSessionTreeMoveMessages(t, {
         success: 'sessions.sidebar.session.moveToWorktree.success',
@@ -562,19 +552,10 @@ export const Header: React.FC = () => {
     const sessions = useGlobalSessionsStore.getState().activeSessions;
     const root = sessions.find((session) => session.id === currentSessionId);
     if (!root) return;
-    const descendants: typeof sessions = [];
-    const pendingParentIds = [currentSessionId];
-    for (let index = 0; index < pendingParentIds.length; index += 1) {
-      for (const session of sessions) {
-        if (session.parentID !== pendingParentIds[index]) continue;
-        descendants.push(session);
-        pendingParentIds.push(session.id);
-      }
-    }
     requestSessionTreeMove({
       kind: 'project',
       root,
-      descendants,
+      descendants: collectSessionMoveDescendants(root, []),
       sourceDirectory: sessionDirectory,
       projectDirectory,
       messages: buildSessionTreeMoveMessages(t, {

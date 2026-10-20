@@ -344,6 +344,8 @@ const ComposerTab: React.FC = () => {
   const setLargeTextPasteBehavior = useUIStore((state) => state.setLargeTextPasteBehavior);
   const allowPromptingSubagentSessions = useUIStore((state) => state.allowPromptingSubagentSessions);
   const setAllowPromptingSubagentSessions = useUIStore((state) => state.setAllowPromptingSubagentSessions);
+  const savePastedImagesAsFiles = useUIStore((state) => state.savePastedImagesAsFiles);
+  const setSavePastedImagesAsFiles = useUIStore((state) => state.setSavePastedImagesAsFiles);
   const persistChatDraft = useUIStore((state) => state.persistChatDraft);
   const setPersistChatDraft = useUIStore((state) => state.setPersistChatDraft);
   const inputSpellcheckEnabled = useUIStore((state) => state.inputSpellcheckEnabled);
@@ -422,13 +424,23 @@ const ComposerTab: React.FC = () => {
             ))}
           </SettingsRadioGroup>
         </SettingsControlGroup>
-        <SettingsCheckboxRow
-          checked={allowPromptingSubagentSessions}
-          onChange={setAllowPromptingSubagentSessions}
-          label={t('settings.openchamber.visual.field.allowPromptingSubagentSessions')}
-          ariaLabel={t('settings.openchamber.visual.field.allowPromptingSubagentSessionsAria')}
-          settingsItem="chat.subagent-read-only-banner"
-        />
+        <div className={SETTINGS_OPTION_STACK_CLASS}>
+          <SettingsCheckboxRow
+            checked={allowPromptingSubagentSessions}
+            onChange={setAllowPromptingSubagentSessions}
+            label={t('settings.openchamber.visual.field.allowPromptingSubagentSessions')}
+            ariaLabel={t('settings.openchamber.visual.field.allowPromptingSubagentSessionsAria')}
+            settingsItem="chat.subagent-read-only-banner"
+          />
+          <SettingsCheckboxRow
+            checked={savePastedImagesAsFiles}
+            onChange={setSavePastedImagesAsFiles}
+            label={t('settings.openchamber.visual.field.savePastedImagesAsFiles')}
+            ariaLabel={t('settings.openchamber.visual.field.savePastedImagesAsFiles')}
+            info={t('settings.openchamber.visual.field.savePastedImagesAsFilesInfo')}
+            settingsItem="chat.save-pasted-images"
+          />
+        </div>
       </SettingsSection>
 
       <SettingsSection title={t('settings.layout.chat.section.draftsAndHistory')} contentClassName="space-y-3">

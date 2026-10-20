@@ -118,6 +118,7 @@ which requests only providers enabled for this panel.
 | Usage | `components/usage/usageGroups.ts` over `useQuotaStore` | grouping shared with the mobile popover; presentation is not |
 | Linked threads | `lib/linkedIssues.ts` over session metadata; state from tracked items | written by the flows that attach an issue or PR, and removable from the row; a linked PR that is also the checked-out branch's PR shows the branch summary, as its sidebar row does |
 | Turn stats | `telemetry.ts` over `useSessionMessageRecords` | computed while authoritatively idle, including when collapsed so the headline stays current; either rate above 5,000 tok/s is reported as unknown (see the two-rate description below) |
+| Keep-warm switch | `useSessionWarmingStore`, mirrored from the server's `lib/session-warming` | on the Context row, shown only while Settings chose per-session warming and for a root session outside an isolated space; the tooltip's countdown ticks only while it is open |
 | Goal | `useSessionGoal` | respects the Settings toggle |
 | MCP | `useMcpStore` | connect/disconnect reuses the dropdown's actions |
 | Pinned messages | `getContextObligatoryMessages` + `state.part`, else one `getSessionMessage` read | see below |
@@ -144,6 +145,12 @@ or failed, with no pending blocker). Creation order holds within each group, so
 a fully finished list reads as it did at launch.
 The section derives per-row cost with `computeRollup` over the live-session list
 it already holds instead of opening a second subscription through the hook.
+
+Directory bootstrap publishes each session page as it arrives, so subagent rows
+do not wait for unrelated older history pages. Partial pages add coverage without
+removing cached sessions. Only the completed list establishes authoritative
+coverage and removes absent records; newer live updates and deletions win over
+both partial pages and the final snapshot.
 
 Hovering or focusing a row shows its session model's catalog display name,
 falling back to the formatted model ID. Missing model metadata produces no
@@ -182,8 +189,8 @@ the final assistant completion. It includes model waits, tool execution,
 compaction, and other gaps; it is not used as a throughput denominator.
 
 Metric labels stay short. Every row is a single hover and keyboard-focus target
-for a shared tooltip, with a 750ms hover delay and a portal outside the panel's
-scroller. Tooltips explain the measurement in every locale. The token row uses
+for a shared tooltip that opens above the row after a 300ms hover delay, with a
+portal outside the panel's scroller. Tooltips explain the measurement in every locale. The token row uses
 compact input/output arrows; its tooltip gives full counts and explains that
 input excludes cached tokens and output includes reasoning across all steps.
 
@@ -589,6 +596,10 @@ could stay missing from the panel until Settings -> Usage forced a fresh fetch.
 `useQuotaStore.ensureLoadedForRuntime` owns both the readiness rule and the
 once-per-instance bookkeeping, so every caller can ask on each connection
 change.
+
+The visible panel's initial quota load uses the background gate's active-session
+priority. It runs ahead of queued metadata reads while keeping the same network
+concurrency limit and instance-readiness rule.
 
 ### These readouts belong to the connected instance
 
