@@ -2732,6 +2732,7 @@ export const dict = {
   'chat.modelControls.noAgentSelected': 'لم يتم اختيار وكيل.',
   'chat.modelControls.resetToDefault': 'إعادة التعيين إلى الافتراضي',
   'chat.modelControls.searchModels': 'البحث في النماذج',
+  'chat.modelControls.modelListAria': 'النماذج',
   'chat.modelControls.searchAgents': 'البحث في الوكلاء',
   'chat.modelControls.noModelsFound': 'لم يتم العثور على نماذج',
   'chat.modelControls.favorites': 'المفضلة',
